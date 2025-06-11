@@ -6,8 +6,8 @@ import time
 
 import matplotlib.pyplot as plt
 import numpy as np
-from langchain import PromptTemplate, OpenAI
-from shapely.geometry import Polygon, box, Point, LineString
+from langchain import OpenAI, PromptTemplate
+from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import substring
 
 import ai2holodeck.generation.prompts as prompts
@@ -41,6 +41,7 @@ class WallObjectGenerator:
         self.grid_size = 25
         self.default_height = 150
         self.constraint_type = "llm"
+        self.multiprocessing = False
 
     def generate_wall_objects(self, scene, use_constraint=True):
         doors = scene["doors"]
@@ -64,10 +65,15 @@ class WallObjectGenerator:
             )
             for room in scene["rooms"]
         ]
-        pool = multiprocessing.Pool(processes=4)
-        all_placements = pool.map(self.generate_wall_objects_per_room, packed_args)
-        pool.close()
-        pool.join()
+        if self.multiprocessing:
+            pool = multiprocessing.Pool(processes=4)
+            all_placements = pool.map(self.generate_wall_objects_per_room, packed_args)
+            pool.close()
+            pool.join()
+        else:
+            all_placements = []
+            for args in packed_args:
+                all_placements.append(self.generate_wall_objects_per_room(args))
 
         for placements in all_placements:
             wall_objects += placements
@@ -88,9 +94,7 @@ class WallObjectGenerator:
 
         selected_wall_objects = selected_objects[room["roomType"]]["wall"]
         selected_wall_objects = self.order_objects_by_size(selected_wall_objects)
-        wall_object_name2id = {
-            object_name: asset_id for object_name, asset_id in selected_wall_objects
-        }
+        wall_object_name2id = {object_name: asset_id for object_name, asset_id in selected_wall_objects}
 
         room_id = room["id"]
         room_type = room["roomType"]
@@ -120,9 +124,7 @@ class WallObjectGenerator:
                 constraint_plan += f"{object_name} | N/A | {random_height} \n"
 
         print(f"\nwall object constraint plan for {room_type}:\n{constraint_plan}")
-        constraints = self.parse_wall_object_constraints(
-            constraint_plan, wall_object_names, floor_object_names
-        )
+        constraints = self.parse_wall_object_constraints(constraint_plan, wall_object_names, floor_object_names)
 
         # get wall objects
         wall_object2dimension = {
@@ -144,43 +146,31 @@ class WallObjectGenerator:
         # update constraints with max height
         wall_object2max_height = {
             object_name: min(
-                scene["wall_height"] * 100
-                - wall_object2dimension[object_name]["y"] * 100
-                - 20,
+                scene["wall_height"] * 100 - wall_object2dimension[object_name]["y"] * 100 - 20,
                 constraints[object_name]["height"],
             )
             for object_name in constraints
         }
         for object_name in constraints:
-            constraints[object_name]["height"] = max(
-                wall_object2max_height[object_name], 0
-            )  # avoid negative height
+            constraints[object_name]["height"] = max(wall_object2max_height[object_name], 0)  # avoid negative height
 
         # get initial state
         room_vertices = [(x * 100, y * 100) for (x, y) in room["vertices"]]
         room_poly = Polygon(room_vertices)
-        initial_state = self.get_initial_state(
-            scene, doors, windows, room_vertices, open_walls
-        )
+        initial_state = self.get_initial_state(scene, doors, windows, room_vertices, open_walls)
 
         # solve
         room_x, room_z = self.get_room_size(room)
         grid_size = max(room_x // 20, room_z // 20)
 
-        solver = DFS_Solver_Wall(
-            grid_size=grid_size, max_duration=5, constraint_bouns=100
-        )
-        solutions = solver.get_solution(
-            room_poly, wall_objects_list, constraints, initial_state
-        )
+        solver = DFS_Solver_Wall(grid_size=grid_size, max_duration=5, constraint_bouns=100)
+        solutions = solver.get_solution(room_poly, wall_objects_list, constraints, initial_state)
 
         placements = self.solution2placement(solutions, wall_object_name2id, room_id)
 
         return placements
 
-    def parse_wall_object_constraints(
-        self, constraint_text, wall_object_names, floor_object_names
-    ):
+    def parse_wall_object_constraints(self, constraint_text, wall_object_names, floor_object_names):
         object2constraints = {}
         lines = [line.lower() for line in constraint_text.split("\n") if "|" in line]
         for line in lines:
@@ -236,9 +226,7 @@ class WallObjectGenerator:
 
     def check_wall_object_size(self, room_size, object_size):
         if object_size["x"] * 100 > max(room_size) * 0.5:
-            print(
-                f"Warning: object size {object_size} is too large for room size {room_size}."
-            )
+            print(f"Warning: object size {object_size} is too large for room size {room_size}.")
             return False
         else:
             return True
@@ -363,8 +351,7 @@ class WallObjectGenerator:
             ordered_wall_objects.append([object_name, asset_id, size])
         ordered_wall_objects.sort(key=lambda x: x[2], reverse=True)
         ordered_wall_objects_no_size = [
-            [object_name, asset_id]
-            for object_name, asset_id, size in ordered_wall_objects
+            [object_name, asset_id] for object_name, asset_id, size in ordered_wall_objects
         ]
         return ordered_wall_objects_no_size
 
@@ -390,9 +377,7 @@ class DFS_Solver_Wall:
 
         self.start_time = time.time()
         try:
-            self.dfs(
-                room_poly, wall_objects_list, constraints, grid_points, initial_state
-            )
+            self.dfs(room_poly, wall_objects_list, constraints, grid_points, initial_state)
         except SolutionFound as e:
             print(f"Time taken: {time.time() - self.start_time}")
 
@@ -409,9 +394,7 @@ class DFS_Solver_Wall:
         max_index = np.argmax(path_weights)
         return solutions[max_index]
 
-    def dfs(
-        self, room_poly, wall_objects_list, constraints, grid_points, placed_objects
-    ):
+    def dfs(self, room_poly, wall_objects_list, constraints, grid_points, placed_objects):
         if len(wall_objects_list) == 0:
             self.solutions.append(placed_objects)
             return placed_objects
@@ -444,24 +427,15 @@ class DFS_Solver_Wall:
 
         return paths
 
-    def get_possible_placements(
-        self, room_poly, object_dim, constraint, grid_points, placed_objects
-    ):
+    def get_possible_placements(self, room_poly, object_dim, constraint, grid_points, placed_objects):
         all_solutions = self.filter_collision(
             placed_objects,
-            self.get_all_solutions(
-                room_poly, grid_points, object_dim, constraint["height"]
-            ),
+            self.get_all_solutions(room_poly, grid_points, object_dim, constraint["height"]),
         )
         random.shuffle(all_solutions)
         target_floor_object_name = constraint["target_floor_object_name"]
-        if (
-            target_floor_object_name is not None
-            and target_floor_object_name in placed_objects
-        ):
-            all_solutions = self.score_solution_by_distance(
-                all_solutions, placed_objects[target_floor_object_name]
-            )
+        if target_floor_object_name is not None and target_floor_object_name in placed_objects:
+            all_solutions = self.score_solution_by_distance(all_solutions, placed_objects[target_floor_object_name])
             # order solutions by distance to target floor object
             all_solutions = sorted(all_solutions, key=lambda x: x[-1], reverse=True)
         return all_solutions
@@ -478,9 +452,7 @@ class DFS_Solver_Wall:
 
             # Create points along the edge at intervals of grid size
             for j in range(0, int(line_length), self.grid_size):
-                point_on_line = substring(
-                    line, j, j
-                )  # Get a point at distance j from the start of the line
+                point_on_line = substring(line, j, j)  # Get a point at distance j from the start of the line
                 if point_on_line:
                     grid_points.append((point_on_line.x, point_on_line.y))
 
@@ -501,9 +473,7 @@ class DFS_Solver_Wall:
         for rotation in [0, 90, 180, 270]:
             for point in grid_points:
                 center_x, center_y = point
-                lower_left_adjustment, upper_right_adjustment = rotation_adjustments[
-                    rotation
-                ]
+                lower_left_adjustment, upper_right_adjustment = rotation_adjustments[rotation]
                 lower_left = (
                     center_x + lower_left_adjustment[0],
                     center_y + lower_left_adjustment[1],
@@ -517,9 +487,7 @@ class DFS_Solver_Wall:
                 if room_poly.contains(obj_box):
                     object_coords = obj_box.exterior.coords[:]
                     coordinates_on_edge = [
-                        coord
-                        for coord in object_coords
-                        if room_poly.boundary.contains(Point(coord))
+                        coord for coord in object_coords if room_poly.boundary.contains(Point(coord))
                     ]
                     coordinates_on_edge = list(set(coordinates_on_edge))
                     if len(coordinates_on_edge) >= 2:
@@ -580,11 +548,7 @@ class DFS_Solver_Wall:
                 (target_object[0][1] + target_object[1][1]) / 2,
                 (target_object[0][2] + target_object[1][2]) / 2,
             )
-            distance = np.sqrt(
-                (center_x - target_x) ** 2
-                + (center_y - target_y) ** 2
-                + (center_z - target_z) ** 2
-            )
+            distance = np.sqrt((center_x - target_x) ** 2 + (center_y - target_y) ** 2 + (center_z - target_z) ** 2)
             distances.append(distance)
             scored_solution = solution.copy()
             scored_solution[-1] = solution[-1] + self.constraint_bouns * (1 / distance)
@@ -607,9 +571,7 @@ class DFS_Solver_Wall:
         # draw the solutions
         for object_name, solution in solutions.items():
             vertex_min, vertex_max, rotation, box_coords = solution[:-1]
-            center_x, center_y = (vertex_min[0] + vertex_max[0]) / 2, (
-                vertex_min[2] + vertex_max[2]
-            ) / 2
+            center_x, center_y = (vertex_min[0] + vertex_max[0]) / 2, (vertex_min[2] + vertex_max[2]) / 2
 
             # create a polygon for the solution
             obj_poly = Polygon(box_coords)

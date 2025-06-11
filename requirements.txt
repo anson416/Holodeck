@@ -15,8 +15,8 @@ moviepy
 numpy
 openai==0.27.6
 langchain==0.0.171
-torch==1.13.1
-torchvision==0.14.1
+torch==2.5.1
+torchvision==0.20.1
 gurobipy==10.0.3
 Werkzeug==2.0.1
 Flask==2.0.1
@@ -25,3 +25,4 @@ compress-json
 black
 objathor
 editdistance
+moviepy==1.0.3

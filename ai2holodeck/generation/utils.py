@@ -1,22 +1,23 @@
 import copy
 import os
+import platform
 from argparse import ArgumentParser
-from typing import Dict, Any
+from typing import Any, Dict
 
 import compress_json
 import numpy as np
-from PIL import Image
 from ai2thor.controller import Controller
 from ai2thor.hooks.procedural_asset_hook import ProceduralAssetHookRunner
-from moviepy.editor import (
-    TextClip,
-    CompositeVideoClip,
-    concatenate_videoclips,
-    ImageSequenceClip,
-)
+from ai2thor.platform import CloudRendering
+from moviepy.editor import CompositeVideoClip, ImageSequenceClip, TextClip, concatenate_videoclips
+from PIL import Image
 from tqdm import tqdm
 
 from ai2holodeck.constants import HOLODECK_BASE_DATA_DIR, THOR_COMMIT_ID
+
+
+def is_linux():
+    return platform.system() == "Linux"
 
 
 def all_edges_white(img):
@@ -55,6 +56,7 @@ def get_top_down_frame(scene, objaverse_asset_dir, width=1024, height=1024):
             asset_symlink=True,
             verbose=True,
         ),
+        platform=CloudRendering if is_linux() else None,
     )
 
     # Setup the top-down camera
@@ -68,9 +70,7 @@ def get_top_down_frame(scene, objaverse_asset_dir, width=1024, height=1024):
     del pose["orthographicSize"]
 
     try:
-        wall_height = wall_height = max(
-            [point["y"] for point in scene["walls"][0]["polygon"]]
-        )
+        wall_height = wall_height = max([point["y"] for point in scene["walls"][0]["polygon"]])
     except:
         wall_height = 2.5
 
@@ -116,6 +116,7 @@ def get_top_down_frame_ithor(scene, objaverse_asset_dir, width=1024, height=1024
             asset_symlink=True,
             verbose=True,
         ),
+        platform=CloudRendering if is_linux() else None,
     )
 
     controller.reset(scene)
@@ -176,6 +177,7 @@ def get_room_images(scene, objaverse_asset_dir, width=1024, height=1024):
             asset_symlink=True,
             verbose=True,
         ),
+        platform=CloudRendering if is_linux() else None,
     )
 
     wall_height = max([point["y"] for point in scene["walls"][0]["polygon"]])
@@ -190,19 +192,14 @@ def get_room_images(scene, objaverse_asset_dir, width=1024, height=1024):
         room_center = np.mean(room_vertices, axis=0)
         floor_center = np.array([room_center[0], 0, room_center[1]])
         camera_center = np.array([room_center[0], camera_height, room_center[1]])
-        corners = np.array(
-            [[point[0], camera_height, point[1]] for point in room_vertices]
-        )
+        corners = np.array([[point[0], camera_height, point[1]] for point in room_vertices])
         farest_corner = np.argmax(np.linalg.norm(corners - camera_center, axis=1))
 
         vector_1 = floor_center - camera_center
         vector_2 = farest_corner - camera_center
         x_angle = (
             90
-            - np.arccos(
-                np.dot(vector_1, vector_2)
-                / (np.linalg.norm(vector_1) * np.linalg.norm(vector_2))
-            )
+            - np.arccos(np.dot(vector_1, vector_2) / (np.linalg.norm(vector_1) * np.linalg.norm(vector_2)))
             * 180
             / np.pi
         )
@@ -210,9 +207,7 @@ def get_room_images(scene, objaverse_asset_dir, width=1024, height=1024):
         if not controller.last_event.third_party_camera_frames:
             controller.step(
                 action="AddThirdPartyCamera",
-                position=dict(
-                    x=camera_center[0], y=camera_center[1], z=camera_center[2]
-                ),
+                position=dict(x=camera_center[0], y=camera_center[1], z=camera_center[2]),
                 rotation=dict(x=0, y=0, z=0),
             )
 
@@ -221,13 +216,9 @@ def get_room_images(scene, objaverse_asset_dir, width=1024, height=1024):
             controller.step(
                 action="UpdateThirdPartyCamera",
                 rotation=dict(x=x_angle, y=angle + 45, z=0),
-                position=dict(
-                    x=camera_center[0], y=camera_center[1], z=camera_center[2]
-                ),
+                position=dict(x=camera_center[0], y=camera_center[1], z=camera_center[2]),
             )
-            images.append(
-                Image.fromarray(controller.last_event.third_party_camera_frames[0])
-            )
+            images.append(Image.fromarray(controller.last_event.third_party_camera_frames[0]))
 
         room_images[room_name] = images
 
@@ -250,6 +241,7 @@ def ithor_video(scene, objaverse_asset_dir, width, height, scene_type):
             asset_symlink=True,
             verbose=True,
         ),
+        platform=CloudRendering if is_linux() else None,
     )
 
     event = controller.step(action="GetMapViewCameraProperties", raise_for_failure=True)
@@ -261,9 +253,7 @@ def ithor_video(scene, objaverse_asset_dir, width, height, scene_type):
     if not controller.last_event.third_party_camera_frames:
         controller.step(
             action="AddThirdPartyCamera",
-            position=dict(
-                x=pose["position"]["x"], y=camera_height, z=pose["position"]["z"]
-            ),
+            position=dict(x=pose["position"]["x"], y=camera_height, z=pose["position"]["z"]),
             rotation=dict(x=0, y=0, z=0),
         )
 
@@ -273,9 +263,7 @@ def ithor_video(scene, objaverse_asset_dir, width, height, scene_type):
         controller.step(
             action="UpdateThirdPartyCamera",
             rotation=dict(x=45, y=angle, z=0),
-            position=dict(
-                x=pose["position"]["x"], y=camera_height, z=pose["position"]["z"]
-            ),
+            position=dict(x=pose["position"]["x"], y=camera_height, z=pose["position"]["z"]),
         )
         images.append(controller.last_event.third_party_camera_frames[0])
 
@@ -288,9 +276,7 @@ def ithor_video(scene, objaverse_asset_dir, width, height, scene_type):
         .set_duration(imsn.duration)
     )
     txt_clip_room = (
-        TextClip(
-            f"Room Type: {scene_type}", fontsize=30, color="white", font="Arial-Bold"
-        )
+        TextClip(f"Room Type: {scene_type}", fontsize=30, color="white", font="Arial-Bold")
         .set_pos(("center", "bottom"))
         .set_duration(imsn.duration)
     )
@@ -335,6 +321,7 @@ def room_video(scene, objaverse_asset_dir, width, height):
             asset_symlink=True,
             verbose=True,
         ),
+        platform=CloudRendering if is_linux() else None,
     )
 
     try:
@@ -356,21 +343,14 @@ def room_video(scene, objaverse_asset_dir, width, height):
         room_center = np.mean(room_vertices, axis=0)
         floor_center = np.array([room_center[0], 0, room_center[1]])
         camera_center = np.array([room_center[0], camera_height, room_center[1]])
-        corners = np.array(
-            [[point["x"], point["y"], point["z"]] for point in room["floorPolygon"]]
-        )
-        farest_corner = corners[
-            np.argmax(np.linalg.norm(corners - camera_center, axis=1))
-        ]
+        corners = np.array([[point["x"], point["y"], point["z"]] for point in room["floorPolygon"]])
+        farest_corner = corners[np.argmax(np.linalg.norm(corners - camera_center, axis=1))]
 
         vector_1 = floor_center - camera_center
         vector_2 = farest_corner - camera_center
         x_angle = (
             90
-            - np.arccos(
-                np.dot(vector_1, vector_2)
-                / (np.linalg.norm(vector_1) * np.linalg.norm(vector_2))
-            )
+            - np.arccos(np.dot(vector_1, vector_2) / (np.linalg.norm(vector_1) * np.linalg.norm(vector_2)))
             * 180
             / np.pi
         )
@@ -379,9 +359,7 @@ def room_video(scene, objaverse_asset_dir, width, height):
         if not controller.last_event.third_party_camera_frames:
             controller.step(
                 action="AddThirdPartyCamera",
-                position=dict(
-                    x=camera_center[0], y=camera_center[1], z=camera_center[2]
-                ),
+                position=dict(x=camera_center[0], y=camera_center[1], z=camera_center[2]),
                 rotation=dict(x=0, y=0, z=0),
             )
 
@@ -389,9 +367,7 @@ def room_video(scene, objaverse_asset_dir, width, height):
             controller.step(
                 action="UpdateThirdPartyCamera",
                 rotation=dict(x=x_angle, y=angle, z=0),
-                position=dict(
-                    x=camera_center[0], y=camera_center[1], z=camera_center[2]
-                ),
+                position=dict(x=camera_center[0], y=camera_center[1], z=camera_center[2]),
             )
             images.append(controller.last_event.third_party_camera_frames[0])
 
@@ -399,16 +375,12 @@ def room_video(scene, objaverse_asset_dir, width, height):
 
         # Create text clips
         txt_clip_query = (
-            TextClip(
-                f"Query: {text_query}", fontsize=30, color="white", font="Arial-Bold"
-            )
+            TextClip(f"Query: {text_query}", fontsize=30, color="white", font="Arial-Bold")
             .set_pos(("center", "top"))
             .set_duration(imsn.duration)
         )
         txt_clip_room = (
-            TextClip(
-                f"Room Type: {room_name}", fontsize=30, color="white", font="Arial-Bold"
-            )
+            TextClip(f"Room Type: {room_name}", fontsize=30, color="white", font="Arial-Bold")
             .set_pos(("center", "bottom"))
             .set_duration(imsn.duration)
         )
@@ -482,9 +454,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--scene",
         help="Scene to load.",
-        default=os.path.join(
-            HOLODECK_BASE_DATA_DIR, "scenes/a_living_room/a_living_room.json"
-        ),
+        default=os.path.join(HOLODECK_BASE_DATA_DIR, "scenes/a_living_room/a_living_room.json"),
     )
 
     args = parser.parse_args()

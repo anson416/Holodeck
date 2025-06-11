@@ -1,6 +1,6 @@
 import datetime
 import os
-from typing import Optional, Dict, Any, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import compress_json
 import open_clip
@@ -9,15 +9,15 @@ from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 
 from ai2holodeck.constants import (
+    ABS_PATH_OF_HOLODECK,
     HOLODECK_BASE_DATA_DIR,
-    OBJATHOR_VERSIONED_DIR,
+    HOLODECK_THOR_ANNOTATIONS_PATH,
+    HOLODECK_THOR_FEATURES_DIR,
+    LLM_MODEL_NAME,
+    OBJATHOR_ANNOTATIONS_PATH,
     OBJATHOR_ASSETS_DIR,
     OBJATHOR_FEATURES_DIR,
-    OBJATHOR_ANNOTATIONS_PATH,
-    HOLODECK_THOR_FEATURES_DIR,
-    HOLODECK_THOR_ANNOTATIONS_PATH,
-    LLM_MODEL_NAME,
-    ABS_PATH_OF_HOLODECK,
+    OBJATHOR_VERSIONED_DIR,
 )
 from ai2holodeck.generation.ceiling_objects import CeilingObjectGenerator
 from ai2holodeck.generation.doors import DoorGenerator
@@ -60,6 +60,8 @@ class Holodeck:
         openai_org: Optional[str],
         objaverse_asset_dir: str,
         single_room,
+        model_name: str = LLM_MODEL_NAME,
+        openai_api_base: Optional[str] = None,
     ):
         confirm_paths_exist()
 
@@ -68,9 +70,10 @@ class Holodeck:
 
         # initialize llm
         self.llm = OpenAI(
-            model_name=LLM_MODEL_NAME,
+            model_name=model_name,
             max_tokens=2048,
             openai_api_key=openai_api_key,
+            openai_api_base=openai_api_base,
         )
 
         # initialize CLIP
@@ -78,9 +81,7 @@ class Holodeck:
             self.clip_model,
             _,
             self.clip_preprocess,
-        ) = open_clip.create_model_and_transforms(
-            "ViT-L-14", pretrained="laion2b_s32b_b82k"
-        )
+        ) = open_clip.create_model_and_transforms("ViT-L-14", pretrained="laion2b_s32b_b82k")
         self.clip_tokenizer = open_clip.get_tokenizer("ViT-L-14")
 
         # initialize sentence transformer
@@ -98,29 +99,15 @@ class Holodeck:
             sbert_model=self.sbert_model,
             retrieval_threshold=self.retrieval_threshold,
         )
-        self.floor_generator = FloorPlanGenerator(
-            self.clip_model, self.clip_preprocess, self.clip_tokenizer, self.llm
-        )
+        self.floor_generator = FloorPlanGenerator(self.clip_model, self.clip_preprocess, self.clip_tokenizer, self.llm)
         self.wall_generator = WallGenerator(self.llm)
-        self.door_generator = DoorGenerator(
-            self.clip_model, self.clip_preprocess, self.clip_tokenizer, self.llm
-        )
+        self.door_generator = DoorGenerator(self.clip_model, self.clip_preprocess, self.clip_tokenizer, self.llm)
         self.window_generator = WindowGenerator(self.llm)
-        self.object_selector = ObjectSelector(
-            object_retriever=self.object_retriever, llm=self.llm
-        )
-        self.floor_object_generator = FloorObjectGenerator(
-            object_retriever=self.object_retriever, llm=self.llm
-        )
-        self.wall_object_generator = WallObjectGenerator(
-            object_retriever=self.object_retriever, llm=self.llm
-        )
-        self.ceiling_generator = CeilingObjectGenerator(
-            object_retriever=self.object_retriever, llm=self.llm
-        )
-        self.small_object_generator = SmallObjectGenerator(
-            object_retriever=self.object_retriever, llm=self.llm
-        )
+        self.object_selector = ObjectSelector(object_retriever=self.object_retriever, llm=self.llm)
+        self.floor_object_generator = FloorObjectGenerator(object_retriever=self.object_retriever, llm=self.llm)
+        self.wall_object_generator = WallObjectGenerator(object_retriever=self.object_retriever, llm=self.llm)
+        self.ceiling_generator = CeilingObjectGenerator(object_retriever=self.object_retriever, llm=self.llm)
+        self.small_object_generator = SmallObjectGenerator(object_retriever=self.object_retriever, llm=self.llm)
 
         # additional requirements
         single_room_requirements = "I only need one room"
@@ -131,16 +118,12 @@ class Holodeck:
             self.additional_requirements_room = "N/A"
 
         self.additional_requirements_door = "N/A"
-        self.additional_requirements_window = (
-            "Only one wall of each room should have windows"
-        )
+        self.additional_requirements_window = "Only one wall of each room should have windows"
         self.additional_requirements_object = "N/A"
         self.additional_requirements_ceiling = "N/A"
 
     def get_empty_scene(self):
-        return compress_json.load(
-            os.path.join(ABS_PATH_OF_HOLODECK, "generation/empty_house.json")
-        )
+        return compress_json.load(os.path.join(ABS_PATH_OF_HOLODECK, "generation/empty_house.json"))
 
     def empty_house(self, scene):
         scene["rooms"] = []
@@ -179,9 +162,7 @@ class Holodeck:
         scene["open_room_pairs"] = open_room_pairs
 
         # update walls
-        updated_walls, open_walls = self.wall_generator.update_walls(
-            scene["walls"], open_room_pairs
-        )
+        updated_walls, open_walls = self.wall_generator.update_walls(scene["walls"], open_room_pairs)
         scene["walls"] = updated_walls
         scene["open_walls"] = open_walls
         return scene
@@ -193,9 +174,7 @@ class Holodeck:
         used_assets=[],
     ):
         self.window_generator.used_assets = used_assets
-        raw_window_plan, walls, windows = self.window_generator.generate_windows(
-            scene, additional_requirements_window
-        )
+        raw_window_plan, walls, windows = self.window_generator.generate_windows(scene, additional_requirements_window)
         scene["raw_window_plan"] = raw_window_plan
         scene["windows"] = windows
         scene["walls"] = walls
@@ -214,23 +193,17 @@ class Holodeck:
         (
             raw_ceiling_plan,
             ceiling_objects,
-        ) = self.ceiling_generator.generate_ceiling_objects(
-            scene, additional_requirements_ceiling
-        )
+        ) = self.ceiling_generator.generate_ceiling_objects(scene, additional_requirements_ceiling)
         scene["ceiling_objects"] = ceiling_objects
         scene["raw_ceiling_plan"] = raw_ceiling_plan
         return scene
 
     def generate_small_objects(self, scene, used_assets=[]):
         self.small_object_generator.used_assets = used_assets
-        controller = self.small_object_generator.start_controller(
-            scene, self.objaverse_asset_dir
-        )
+        controller = self.small_object_generator.start_controller(scene, self.objaverse_asset_dir)
         event = controller.reset()
         receptacle_ids = [
-            obj["objectId"]
-            for obj in event.metadata["objects"]
-            if obj["receptacle"] and "___" not in obj["objectId"]
+            obj["objectId"] for obj in event.metadata["objects"] if obj["receptacle"] and "___" not in obj["objectId"]
         ]
         if "Floor" in receptacle_ids:
             receptacle_ids.remove("Floor")
@@ -239,9 +212,7 @@ class Holodeck:
             (
                 small_objects,
                 receptacle2small_objects,
-            ) = self.small_object_generator.generate_small_objects(
-                scene, controller, receptacle_ids
-            )
+            ) = self.small_object_generator.generate_small_objects(scene, controller, receptacle_ids)
             scene["small_objects"] = small_objects
             scene["receptacle2small_objects"] = receptacle2small_objects
         except:
@@ -311,14 +282,10 @@ class Holodeck:
 
         # generate floor objects
         self.floor_object_generator.use_milp = use_milp
-        scene["floor_objects"] = self.floor_object_generator.generate_objects(
-            scene, use_constraint=use_constraint
-        )
+        scene["floor_objects"] = self.floor_object_generator.generate_objects(scene, use_constraint=use_constraint)
 
         # generate wall objects
-        scene["wall_objects"] = self.wall_object_generator.generate_wall_objects(
-            scene, use_constraint=use_constraint
-        )
+        scene["wall_objects"] = self.wall_object_generator.generate_wall_objects(scene, use_constraint=use_constraint)
 
         # combine floor and wall objects
         scene["objects"] = scene["floor_objects"] + scene["wall_objects"]
@@ -350,12 +317,7 @@ class Holodeck:
 
         # create folder
         query_name = query.replace(" ", "_").replace("'", "")[:30]
-        create_time = (
-            str(datetime.datetime.now())
-            .replace(" ", "-")
-            .replace(":", "-")
-            .replace(".", "-")
-        )
+        create_time = str(datetime.datetime.now()).replace(" ", "-").replace(":", "-").replace(".", "-")
 
         if add_time:
             folder_name = f"{query_name}-{create_time}"  # query name + time
@@ -378,13 +340,9 @@ class Holodeck:
 
         # save video
         if generate_video:
-            scene["objects"] = (
-                scene["floor_objects"] + scene["wall_objects"] + scene["small_objects"]
-            )
+            scene["objects"] = scene["floor_objects"] + scene["wall_objects"] + scene["small_objects"]
             final_video = room_video(scene, self.objaverse_asset_dir, 1024, 1024)
-            final_video.write_videofile(
-                os.path.join(save_dir, f"{query_name}.mp4"), fps=30
-            )
+            final_video.write_videofile(os.path.join(save_dir, f"{query_name}.mp4"), fps=30)
 
         return scene, save_dir
 
@@ -396,20 +354,13 @@ class Holodeck:
         number_of_variants=5,
         used_assets=[],
     ):
-        self.object_selector.reuse_selection = (
-            False  # force the selector to retrieve different assets
-        )
+        self.object_selector.reuse_selection = False  # force the selector to retrieve different assets
 
         # create the list of used assets
         used_assets += [
-            obj["assetId"]
-            for obj in original_scene["objects"]
-            + original_scene["windows"]
-            + original_scene["doors"]
+            obj["assetId"] for obj in original_scene["objects"] + original_scene["windows"] + original_scene["doors"]
         ]
-        used_assets += [
-            room["floorMaterial"]["name"] for room in original_scene["rooms"]
-        ]
+        used_assets += [room["floorMaterial"]["name"] for room in original_scene["rooms"]]
         used_assets += [wall["material"]["name"] for wall in original_scene["walls"]]
         used_assets = list(set(used_assets))
 
@@ -426,14 +377,9 @@ class Holodeck:
             )
             variant_scenes.append(variant_scene)
             used_assets += [
-                obj["assetId"]
-                for obj in variant_scene["objects"]
-                + variant_scene["windows"]
-                + variant_scene["doors"]
+                obj["assetId"] for obj in variant_scene["objects"] + variant_scene["windows"] + variant_scene["doors"]
             ]
-            used_assets += [
-                room["floorMaterial"]["name"] for room in variant_scene["rooms"]
-            ]
+            used_assets += [room["floorMaterial"]["name"] for room in variant_scene["rooms"]]
             used_assets += [wall["material"]["name"] for wall in variant_scene["walls"]]
             used_assets = list(set(used_assets))
         return variant_scenes
@@ -453,21 +399,15 @@ class Holodeck:
     ):
         # place floor objects
         if use_constraint:
-            self.floor_object_generator.constraint_type = (
-                constraint_type  # ablate the constraint types
-            )
-        scene["floor_objects"] = self.floor_object_generator.generate_objects(
-            scene, use_constraint=use_constraint
-        )
+            self.floor_object_generator.constraint_type = constraint_type  # ablate the constraint types
+        scene["floor_objects"] = self.floor_object_generator.generate_objects(scene, use_constraint=use_constraint)
         if len(scene["floor_objects"]) == 0:
             print("No object is placed, skip this scene")
             return None  # if no object is placed, return None
         # place wall objects
         if use_constraint:
             self.wall_object_generator.constraint_type = constraint_type
-        scene["wall_objects"] = self.wall_object_generator.generate_wall_objects(
-            scene, use_constraint=use_constraint
-        )
+        scene["wall_objects"] = self.wall_object_generator.generate_wall_objects(scene, use_constraint=use_constraint)
 
         # combine floor and wall objects
         scene["objects"] = scene["floor_objects"] + scene["wall_objects"]
@@ -481,12 +421,7 @@ class Holodeck:
 
         # take the first 30 characters of the query as the folder name
         query_name = query.replace(" ", "_").replace("'", "")[:30]
-        create_time = (
-            str(datetime.datetime.now())
-            .replace(" ", "-")
-            .replace(":", "-")
-            .replace(".", "-")
-        )
+        create_time = str(datetime.datetime.now()).replace(" ", "-").replace(":", "-").replace(".", "-")
 
         if add_time:
             folder_name = f"{query_name}-{create_time}"  # query name + time

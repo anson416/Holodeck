@@ -5,20 +5,16 @@ import ai2thor
 import compress_json
 from ai2thor.controller import Controller
 from ai2thor.hooks.procedural_asset_hook import ProceduralAssetHookRunner
+from ai2thor.platform import CloudRendering
 
-from ai2holodeck.constants import (
-    HOLODECK_BASE_DATA_DIR,
-    THOR_COMMIT_ID,
-    OBJATHOR_ASSETS_DIR,
-)
+from ai2holodeck.constants import HOLODECK_BASE_DATA_DIR, OBJATHOR_ASSETS_DIR, THOR_COMMIT_ID
+from ai2holodeck.generation.utils import is_linux
 
 parser = ArgumentParser()
 parser.add_argument(
     "--scene",
     help="the directory of the scene to be generated",
-    default=os.path.join(
-        HOLODECK_BASE_DATA_DIR, "/scenes/a_living_room/a_living_room.json"
-    ),
+    default=os.path.join(HOLODECK_BASE_DATA_DIR, "/scenes/a_living_room/a_living_room.json"),
 )
 parser.add_argument(
     "--asset_dir",
@@ -45,6 +41,7 @@ controller = Controller(
         asset_symlink=True,
         verbose=True,
     ),
+    platform=CloudRendering if is_linux() else None,
 )
 
 

@@ -10,13 +10,13 @@ from typing import Dict, List
 import torch
 import torch.nn.functional as F
 from colorama import Fore
-from langchain import PromptTemplate, OpenAI
+from langchain import OpenAI, PromptTemplate
 from shapely import Polygon
 
 import ai2holodeck.generation.prompts as prompts
 from ai2holodeck.generation.floor_objects import DFS_Solver_Floor
 from ai2holodeck.generation.objaverse_retriever import ObjathorRetriever
-from ai2holodeck.generation.utils import get_bbox_dims, get_annotations
+from ai2holodeck.generation.utils import get_annotations, get_bbox_dims
 from ai2holodeck.generation.wall_objects import DFS_Solver_Wall
 
 EXPECTED_OBJECT_ATTRIBUTES = [
@@ -60,37 +60,26 @@ class ObjectSelector:
 
         self.random_selection = False
         self.reuse_selection = False
-        self.multiprocessing = True
+        self.multiprocessing = False
 
     def select_objects(self, scene, additional_requirements="N/A"):
         rooms_types = [room["roomType"] for room in scene["rooms"]]
-        room2area = {
-            room["roomType"]: self.get_room_area(room) for room in scene["rooms"]
-        }
-        room2size = {
-            room["roomType"]: self.get_room_size(room, scene["wall_height"])
-            for room in scene["rooms"]
-        }
-        room2perimeter = {
-            room["roomType"]: self.get_room_perimeter(room) for room in scene["rooms"]
-        }
+        room2area = {room["roomType"]: self.get_room_area(room) for room in scene["rooms"]}
+        room2size = {room["roomType"]: self.get_room_size(room, scene["wall_height"]) for room in scene["rooms"]}
+        room2perimeter = {room["roomType"]: self.get_room_perimeter(room) for room in scene["rooms"]}
         room2vertices = {
-            room["roomType"]: [(x * 100, y * 100) for (x, y) in room["vertices"]]
-            for room in scene["rooms"]
+            room["roomType"]: [(x * 100, y * 100) for (x, y) in room["vertices"]] for room in scene["rooms"]
         }
 
         room2floor_capacity = {
-            room_type: [room_area * self.floor_capacity_ratio, 0]
-            for room_type, room_area in room2area.items()
+            room_type: [room_area * self.floor_capacity_ratio, 0] for room_type, room_area in room2area.items()
         }
         room2floor_capacity = self.update_floor_capacity(room2floor_capacity, scene)
         room2wall_capacity = {
             room_type: [room_perimeter * self.wall_capacity_ratio, 0]
             for room_type, room_perimeter in room2perimeter.items()
         }
-        selected_objects = {
-            room["roomType"]: {"floor": [], "wall": []} for room in scene["rooms"]
-        }
+        selected_objects = {room["roomType"]: {"floor": [], "wall": []} for room in scene["rooms"]}
 
         if "object_selection_plan" in scene:
             object_selection_plan = scene["object_selection_plan"]
@@ -136,9 +125,7 @@ class ObjectSelector:
                 selected_objects[room_type]["wall"] = result["wall"]
                 object_selection_plan[room_type] = result["plan"]
 
-        print(
-            f"\n{Fore.GREEN}AI: Here is the object selection plan:\n{object_selection_plan}{Fore.RESET}"
-        )
+        print(f"\n{Fore.GREEN}AI: Here is the object selection plan:\n{object_selection_plan}{Fore.RESET}")
         return object_selection_plan, selected_objects
 
     def plan_room(self, args):
@@ -205,9 +192,7 @@ class ObjectSelector:
             plan_2 = self.extract_json(output_2)
 
             if plan_2 is None:
-                print(
-                    f"{Fore.RED}AI: Replanning failed, will use original plan.{Fore.RESET}"
-                )
+                print(f"{Fore.RED}AI: Replanning failed, will use original plan.{Fore.RESET}")
                 plan_2 = plan_1
 
             new_plan = copy.deepcopy(plan_1)
@@ -232,9 +217,7 @@ class ObjectSelector:
     def _recursively_normalize_attribute_keys(self, obj):
         if isinstance(obj, Dict):
             return {
-                key.strip()
-                .lower()
-                .replace(" ", "_"): self._recursively_normalize_attribute_keys(value)
+                key.strip().lower().replace(" ", "_"): self._recursively_normalize_attribute_keys(value)
                 for key, value in obj.items()
             }
         elif isinstance(obj, List):
@@ -323,9 +306,7 @@ class ObjectSelector:
             if not isinstance(value["quantity"], int):
                 dict[key]["quantity"] = 1
 
-            if not isinstance(value.get("variance_type"), str) or value[
-                "variance_type"
-            ] not in ["same", "varied"]:
+            if not isinstance(value.get("variance_type"), str) or value["variance_type"] not in ["same", "varied"]:
                 dict[key]["variance_type"] = "same"
 
             if not isinstance(value.get("objects_on_top"), list):
@@ -348,9 +329,7 @@ class ObjectSelector:
                 if not isinstance(child["quantity"], int):
                     dict[key]["objects_on_top"][i]["quantity"] = 1
 
-                if not isinstance(child.get("variance_type"), str) or child[
-                    "variance_type"
-                ] not in ["same", "varied"]:
+                if not isinstance(child.get("variance_type"), str) or child["variance_type"] not in ["same", "varied"]:
                     dict[key]["objects_on_top"][i]["variance_type"] = "same"
 
         if not valid:
@@ -358,9 +337,7 @@ class ObjectSelector:
         else:
             return dict
 
-    def get_objects_by_room(
-        self, parsed_plan, scene, room_size, floor_capacity, wall_capacity, vertices
-    ):
+    def get_objects_by_room(self, parsed_plan, scene, room_size, floor_capacity, wall_capacity, vertices):
         # get the floor and wall objects
         floor_object_list = []
         wall_object_list = []
@@ -402,9 +379,7 @@ class ObjectSelector:
         room_polygon = Polygon(room_vertices)
         return room_polygon.length
 
-    def get_floor_objects(
-        self, floor_object_list, floor_capacity, room_size, room_vertices, scene
-    ):
+    def get_floor_objects(self, floor_object_list, floor_capacity, room_size, room_vertices, scene):
         selected_floor_objects_all = []
         for floor_object in floor_object_list:
             object_type = floor_object["object_name"]
@@ -427,18 +402,12 @@ class ObjectSelector:
                 candidate
                 for candidate, annotation in zip(
                     candidates,
-                    [
-                        get_annotations(self.database[candidate[0]])
-                        for candidate in candidates
-                    ],
+                    [get_annotations(self.database[candidate[0]]) for candidate in candidates],
                 )
                 if annotation["onFloor"]  # only select objects on the floor
-                and (
-                    not annotation["onCeiling"]
-                )  # only select objects not on the ceiling
+                and (not annotation["onCeiling"])  # only select objects not on the ceiling
                 and all(  # ignore doors and windows and frames
-                    k not in annotation["category"].lower()
-                    for k in ["door", "window", "frame"]
+                    k not in annotation["category"].lower() for k in ["door", "window", "frame"]
                 )
             ]
 
@@ -446,35 +415,23 @@ class ObjectSelector:
             candidates = self.check_object_size(candidates, room_size)
 
             # check if object can be placed on the floor
-            candidates = self.check_floor_placement(
-                candidates[:20], room_vertices, scene
-            )
+            candidates = self.check_floor_placement(candidates[:20], room_vertices, scene)
 
             # No candidates found
             if len(candidates) == 0:
-                print(
-                    "No candidates found for {} {}".format(
-                        object_type, object_description
-                    )
-                )
+                print("No candidates found for {} {}".format(object_type, object_description))
                 continue
 
             # remove used assets
             top_one_candidate = candidates[0]
             if len(candidates) > 1:
-                candidates = [
-                    candidate
-                    for candidate in candidates
-                    if candidate[0] not in self.used_assets
-                ]
+                candidates = [candidate for candidate in candidates if candidate[0] not in self.used_assets]
             if len(candidates) == 0:
                 candidates = [top_one_candidate]
 
             # consider object size difference
             if object_size is not None and self.consider_size:
-                candidates = self.object_retriever.compute_size_difference(
-                    object_size, candidates
-                )
+                candidates = self.object_retriever.compute_size_difference(object_size, candidates)
 
             candidates = candidates[:10]  # only select top 10 candidates
 
@@ -506,25 +463,17 @@ class ObjectSelector:
             current_number_of_objects = len(selected_floor_objects)
             for object_name, selected_asset_id in selected_floor_objects_all:
                 if selected_asset_id not in current_selected_asset_ids:
-                    selected_asset_size = get_bbox_dims(
-                        self.database[selected_asset_id]
-                    )
-                    selected_asset_capacity = (
-                        selected_asset_size["x"] * selected_asset_size["z"]
-                    )
+                    selected_asset_size = get_bbox_dims(self.database[selected_asset_id])
+                    selected_asset_capacity = selected_asset_size["x"] * selected_asset_size["z"]
                     if (
                         floor_capacity[1] + selected_asset_capacity > floor_capacity[0]
                         and len(selected_floor_objects) > 0
                     ):
-                        print(
-                            f"{object_type} {object_description} exceeds floor capacity"
-                        )
+                        print(f"{object_type} {object_description} exceeds floor capacity")
                     else:
                         current_selected_asset_ids.append(selected_asset_id)
                         selected_floor_objects.append((object_name, selected_asset_id))
-                        selected_floor_objects_all.remove(
-                            (object_name, selected_asset_id)
-                        )
+                        selected_floor_objects_all.remove((object_name, selected_asset_id))
                         floor_capacity = (
                             floor_capacity[0],
                             floor_capacity[1] + selected_asset_capacity,
@@ -547,9 +496,7 @@ class ObjectSelector:
 
         return selected_floor_objects_ordered, floor_capacity
 
-    def get_wall_objects(
-        self, wall_object_list, wall_capacity, room_size, room_vertices, scene
-    ):
+    def get_wall_objects(self, wall_object_list, wall_capacity, room_size, room_vertices, scene):
         selected_wall_objects_all = []
         for wall_object in wall_object_list:
             object_type = wall_object["object_name"]
@@ -565,23 +512,19 @@ class ObjectSelector:
 
             # check on wall objects
             candidates = [
-                candidate
-                for candidate in candidates
-                if get_annotations(self.database[candidate[0]])["onWall"] == True
+                candidate for candidate in candidates if get_annotations(self.database[candidate[0]])["onWall"] == True
             ]  # only select objects on the wall
 
             # ignore doors and windows
             candidates = [
                 candidate
                 for candidate in candidates
-                if "door"
-                not in get_annotations(self.database[candidate[0]])["category"].lower()
+                if "door" not in get_annotations(self.database[candidate[0]])["category"].lower()
             ]
             candidates = [
                 candidate
                 for candidate in candidates
-                if "window"
-                not in get_annotations(self.database[candidate[0]])["category"].lower()
+                if "window" not in get_annotations(self.database[candidate[0]])["category"].lower()
             ]
 
             # check if the object is too big
@@ -591,34 +534,22 @@ class ObjectSelector:
             candidates = self.check_thin_object(candidates)
 
             # check if object can be placed on the wall
-            candidates = self.check_wall_placement(
-                candidates[:20], room_vertices, scene
-            )
+            candidates = self.check_wall_placement(candidates[:20], room_vertices, scene)
 
             if len(candidates) == 0:
-                print(
-                    "No candidates found for {} {}".format(
-                        object_type, object_description
-                    )
-                )
+                print("No candidates found for {} {}".format(object_type, object_description))
                 continue
 
             # remove used assets
             top_one_candidate = candidates[0]
             if len(candidates) > 1:
-                candidates = [
-                    candidate
-                    for candidate in candidates
-                    if candidate[0] not in self.used_assets
-                ]
+                candidates = [candidate for candidate in candidates if candidate[0] not in self.used_assets]
             if len(candidates) == 0:
                 candidates = [top_one_candidate]
 
             # consider object size difference
             if object_size is not None and self.consider_size:
-                candidates = self.object_retriever.compute_size_difference(
-                    object_size, candidates
-                )
+                candidates = self.object_retriever.compute_size_difference(object_size, candidates)
 
             candidates = candidates[:10]  # only select top 10 candidates
 
@@ -650,23 +581,17 @@ class ObjectSelector:
             current_number_of_objects = len(selected_wall_objects)
             for object_name, selected_asset_id in selected_wall_objects_all:
                 if selected_asset_id not in current_selected_asset_ids:
-                    selected_asset_size = get_bbox_dims(
-                        self.database[selected_asset_id]
-                    )
+                    selected_asset_size = get_bbox_dims(self.database[selected_asset_id])
                     selected_asset_capacity = selected_asset_size["x"]
                     if (
                         wall_capacity[1] + selected_asset_capacity > wall_capacity[0]
                         and len(selected_wall_objects) > 0
                     ):
-                        print(
-                            f"{object_type} {object_description} exceeds wall capacity"
-                        )
+                        print(f"{object_type} {object_description} exceeds wall capacity")
                     else:
                         current_selected_asset_ids.append(selected_asset_id)
                         selected_wall_objects.append((object_name, selected_asset_id))
-                        selected_wall_objects_all.remove(
-                            (object_name, selected_asset_id)
-                        )
+                        selected_wall_objects_all.remove((object_name, selected_asset_id))
                         wall_capacity = (
                             wall_capacity[0],
                             wall_capacity[1] + selected_asset_capacity,
@@ -726,9 +651,7 @@ class ObjectSelector:
         else:
             scores = [candidate[1] for candidate in candidates]
             scores_tensor = torch.Tensor(scores)
-            probas = F.softmax(
-                scores_tensor, dim=0
-            )  # TODO: consider using normalized scores
+            probas = F.softmax(scores_tensor, dim=0)  # TODO: consider using normalized scores
             selected_index = torch.multinomial(probas, 1).item()
             selected_candidate = candidates[selected_index]
         return selected_candidate
@@ -781,20 +704,14 @@ class ObjectSelector:
         return room2wall_capacity
 
     def check_floor_placement(self, candidates, room_vertices, scene):
-        room_x = max([vertex[0] for vertex in room_vertices]) - min(
-            [vertex[0] for vertex in room_vertices]
-        )
-        room_z = max([vertex[1] for vertex in room_vertices]) - min(
-            [vertex[1] for vertex in room_vertices]
-        )
+        room_x = max([vertex[0] for vertex in room_vertices]) - min([vertex[0] for vertex in room_vertices])
+        room_z = max([vertex[1] for vertex in room_vertices]) - min([vertex[1] for vertex in room_vertices])
         grid_size = int(max(room_x // 20, room_z // 20))
 
         solver = DFS_Solver_Floor(grid_size=grid_size)
 
         room_poly = Polygon(room_vertices)
-        initial_state = self.get_initial_state_floor(
-            room_vertices, scene, add_window=False
-        )
+        initial_state = self.get_initial_state_floor(room_vertices, scene, add_window=False)
 
         grid_points = solver.create_grids(room_poly)
         grid_points = solver.remove_points(grid_points, initial_state)
@@ -814,20 +731,14 @@ class ObjectSelector:
             if solutions != []:
                 valid_candidates.append(candidate)
             else:
-                print(
-                    f"Floor Object {candidate[0]} (size: {object_dim}) cannot be placed in room"
-                )
+                print(f"Floor Object {candidate[0]} (size: {object_dim}) cannot be placed in room")
                 continue
 
         return valid_candidates
 
     def check_wall_placement(self, candidates, room_vertices, scene):
-        room_x = max([vertex[0] for vertex in room_vertices]) - min(
-            [vertex[0] for vertex in room_vertices]
-        )
-        room_z = max([vertex[1] for vertex in room_vertices]) - min(
-            [vertex[1] for vertex in room_vertices]
-        )
+        room_x = max([vertex[0] for vertex in room_vertices]) - min([vertex[0] for vertex in room_vertices])
+        room_z = max([vertex[1] for vertex in room_vertices]) - min([vertex[1] for vertex in room_vertices])
         grid_size = int(max(room_x // 20, room_z // 20))
 
         solver = DFS_Solver_Wall(grid_size=grid_size)
@@ -845,17 +756,13 @@ class ObjectSelector:
                 object_size["z"] * 100,
             )
 
-            solutions = solver.get_all_solutions(
-                room_poly, grid_points, object_dim, height=0
-            )
+            solutions = solver.get_all_solutions(room_poly, grid_points, object_dim, height=0)
             solutions = solver.filter_collision(initial_state, solutions)
 
             if solutions != []:
                 valid_candidates.append(candidate)
             else:
-                print(
-                    f"Wall Object {candidate[0]} (size: {object_dim}) cannot be placed in room"
-                )
+                print(f"Wall Object {candidate[0]} (size: {object_dim}) cannot be placed in room")
                 continue
 
         return valid_candidates

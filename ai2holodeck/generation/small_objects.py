@@ -6,17 +6,14 @@ import torch
 import torch.nn.functional as F
 from ai2thor.controller import Controller
 from ai2thor.hooks.procedural_asset_hook import ProceduralAssetHookRunner
+from ai2thor.platform import CloudRendering
 from langchain import OpenAI
 from procthor.constants import FLOOR_Y
 from procthor.utils.types import Vector3
 
 from ai2holodeck.constants import THOR_COMMIT_ID
 from ai2holodeck.generation.objaverse_retriever import ObjathorRetriever
-from ai2holodeck.generation.utils import (
-    get_bbox_dims,
-    get_annotations,
-    get_secondary_properties,
-)
+from ai2holodeck.generation.utils import get_annotations, get_bbox_dims, get_secondary_properties, is_linux
 
 
 class SmallObjectGenerator:
@@ -39,6 +36,7 @@ class SmallObjectGenerator:
 
         self.used_assets = []
         self.reuse_assets = True
+        self.multiprocessing = False
 
     def generate_small_objects(self, scene, controller, receptacle_ids):
         object_selection_plan = scene["object_selection_plan"]
@@ -93,9 +91,7 @@ class SmallObjectGenerator:
                     # else: placement["rotation"]["y"] = receptacle2rotation[receptacle]["y"]
 
                     if not small and not thin:
-                        placement["kinematic"] = (
-                            True  # set kinematic to true for non-small objects
-                        )
+                        placement["kinematic"] = True  # set kinematic to true for non-small objects
 
                     if "CanBreak" in get_secondary_properties(self.database[asset_id]):
                         placement["kinematic"] = True
@@ -136,9 +132,7 @@ class SmallObjectGenerator:
         #         receptacle2rotation[receptacle_id] = receptacle2rotation[receptacle_id.split("___")[0]]
         return receptacle2rotation
 
-    def select_small_objects(
-        self, object_selection_plan, recpetacle_ids, receptacle2asset_id
-    ):
+    def select_small_objects(self, object_selection_plan, recpetacle_ids, receptacle2asset_id):
         children_plans = []
         for room_type, objects in object_selection_plan.items():
             for object_name, object_info in objects.items():
@@ -153,10 +147,7 @@ class SmallObjectGenerator:
             small_object_plans = []
 
             for child_plan in children_plans:
-                if (
-                    child_plan["room_type"] in receptacle_id
-                    and child_plan["parent"] in receptacle_id
-                ):
+                if child_plan["room_type"] in receptacle_id and child_plan["parent"] in receptacle_id:
                     small_object_plans.append(child_plan)
 
             if len(small_object_plans) > 0:
@@ -167,10 +158,15 @@ class SmallObjectGenerator:
             (receptacle, small_objects, receptacle2asset_id)
             for receptacle, small_objects in receptacle2small_object_plans.items()
         ]
-        pool = multiprocessing.Pool(processes=4)
-        results = pool.map(self.select_small_objects_per_receptacle, packed_args)
-        pool.close()
-        pool.join()
+        if self.multiprocessing:
+            pool = multiprocessing.Pool(processes=4)
+            results = pool.map(self.select_small_objects_per_receptacle, packed_args)
+            pool.close()
+            pool.join()
+        else:
+            results = []
+            for args in packed_args:
+                results.append(self.select_small_objects_per_receptacle(args))
 
         for result in results:
             receptacle2small_objects[result[0]] = result[1]
@@ -181,9 +177,7 @@ class SmallObjectGenerator:
         receptacle, small_objects, receptacle2asset_id = args
 
         results = []
-        receptacle_dimensions = get_bbox_dims(
-            self.database[receptacle2asset_id[receptacle]]
-        )
+        receptacle_dimensions = get_bbox_dims(self.database[receptacle2asset_id[receptacle]])
         receptacle_size = [receptacle_dimensions["x"], receptacle_dimensions["z"]]
         receptacle_area = receptacle_size[0] * receptacle_size[1]
         capacity = 0
@@ -198,9 +192,7 @@ class SmallObjectGenerator:
             quantity = min(quantity, 5)  # maximum 5 objects per receptacle
             print(f"Selecting {quantity} {object_name} for {receptacle}")
             # Select the object
-            candidates = self.object_retriever.retrieve(
-                [f"a 3D model of {object_name}"], self.clip_threshold
-            )
+            candidates = self.object_retriever.retrieve([f"a 3D model of {object_name}"], self.clip_threshold)
             candidates = [
                 candidate
                 for candidate in candidates
@@ -214,8 +206,7 @@ class SmallObjectGenerator:
                 candidate_size = [candidate_dimensions["x"], candidate_dimensions["z"]]
                 sorted(candidate_size)
                 if (
-                    candidate_size[0] < receptacle_size[0] * 0.9
-                    and candidate_size[1] < receptacle_size[1] * 0.9
+                    candidate_size[0] < receptacle_size[0] * 0.9 and candidate_size[1] < receptacle_size[1] * 0.9
                 ):  # if the object is smaller than the receptacle, threshold is 90%
                     valid_candidates.append(candidate)
 
@@ -227,9 +218,7 @@ class SmallObjectGenerator:
             top_one_candidate = valid_candidates[0]
             if len(valid_candidates) > 1:
                 valid_candidates = [
-                    candidate
-                    for candidate in valid_candidates
-                    if candidate[0] not in self.used_assets
+                    candidate for candidate in valid_candidates if candidate[0] not in self.used_assets
                 ]
             if len(valid_candidates) == 0:
                 valid_candidates = [top_one_candidate]
@@ -251,9 +240,7 @@ class SmallObjectGenerator:
                         valid_candidates.remove(selected_candidate)
 
             for i in range(quantity):
-                small_object_dimensions = get_bbox_dims(
-                    self.database[selected_asset_ids[i]]
-                )
+                small_object_dimensions = get_bbox_dims(self.database[selected_asset_ids[i]])
                 small_object_sizes = [
                     small_object_dimensions["x"],
                     small_object_dimensions["y"],
@@ -298,6 +285,7 @@ class SmallObjectGenerator:
                 asset_symlink=True,
                 verbose=True,
             ),
+            platform=CloudRendering if is_linux() else None,
         )
         return controller
 
@@ -327,9 +315,7 @@ class SmallObjectGenerator:
             numPlacementAttempts=10,  # TODO: need to find a better way to determine the number of placement attempts
         )
 
-        obj = next(
-            obj for obj in event.metadata["objects"] if obj["objectId"] == generated_id
-        )
+        obj = next(obj for obj in event.metadata["objects"] if obj["objectId"] == generated_id)
         center_position = obj["axisAlignedBoundingBox"]["center"].copy()
 
         if event and center_position["y"] > FLOOR_Y:
@@ -405,12 +391,7 @@ class SmallObjectGenerator:
         size = (dimensions["x"] * 100, dimensions["y"] * 100, dimensions["z"] * 100)
         threshold = 25 * 25  # 25cm * 25cm is the threshold for small objects
 
-        if (
-            size[0] * size[2] <= threshold
-            and size[0] <= 25
-            and size[1] <= 25
-            and size[2] <= 25
-        ):
+        if size[0] * size[2] <= threshold and size[0] <= 25 and size[1] <= 25 and size[2] <= 25:
             return True, random.randint(0, 360)
         else:
             return False, 0
@@ -418,17 +399,13 @@ class SmallObjectGenerator:
     def random_select(self, candidates):
         scores = [candidate[1] for candidate in candidates]
         scores_tensor = torch.Tensor(scores)
-        probas = F.softmax(
-            scores_tensor, dim=0
-        )  # TODO: consider using normalized scores
+        probas = F.softmax(scores_tensor, dim=0)  # TODO: consider using normalized scores
         selected_index = torch.multinomial(probas, 1).item()
         selected_candidate = candidates[selected_index]
         return selected_candidate
 
     def check_collision(self, placements):
-        static_placements = [
-            placement for placement in placements if placement["kinematic"] == True
-        ]
+        static_placements = [placement for placement in placements if placement["kinematic"] == True]
 
         if len(static_placements) <= 1:
             return placements
@@ -440,16 +417,11 @@ class SmallObjectGenerator:
                     box2 = self.get_bounding_box(placement_2)
                     if self.intersect_3d(box1, box2):
                         colliding_pairs.append((placement_1["id"], placement_2["id"]))
-            id2assetId = {
-                placement["id"]: placement["assetId"] for placement in placements
-            }
+            id2assetId = {placement["id"]: placement["assetId"] for placement in placements}
             if len(colliding_pairs) != 0:
                 remove_ids = []
                 colliding_ids = list(
-                    set(
-                        [pair[0] for pair in colliding_pairs]
-                        + [pair[1] for pair in colliding_pairs]
-                    )
+                    set([pair[0] for pair in colliding_pairs] + [pair[1] for pair in colliding_pairs])
                 )
                 # order by size from small to large
                 colliding_ids = sorted(
@@ -459,16 +431,10 @@ class SmallObjectGenerator:
                 )
                 for object_id in colliding_ids:
                     remove_ids.append(object_id)
-                    colliding_pairs = [
-                        pair for pair in colliding_pairs if object_id not in pair
-                    ]
+                    colliding_pairs = [pair for pair in colliding_pairs if object_id not in pair]
                     if len(colliding_pairs) == 0:
                         break
-                valid_placements = [
-                    placement
-                    for placement in placements
-                    if placement["id"] not in remove_ids
-                ]
+                valid_placements = [placement for placement in placements if placement["id"] not in remove_ids]
                 return valid_placements
             else:
                 return placements
