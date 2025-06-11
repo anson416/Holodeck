@@ -2,7 +2,7 @@ cvxpy
 cchardet
 pillow
 colorama
-open-clip-torch
+open_clip_torch==2.28.0
 transformers
 shapely
 sentence-transformers

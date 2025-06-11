@@ -21,7 +21,7 @@ Holodeck is based on [AI2-THOR](https://ai2thor.allenai.org/ithor/documentation/
 ## Installation
 After cloning the repo, you can install the required dependencies using the following commands:
 ```
-conda create --name holodeck python=3.10
+conda create -n holodeck python=3.10 -y
 conda activate holodeck
 python -m pip install -e .
 python -m pip install --extra-index-url https://ai2thor-pypi.allenai.org ai2thor==0+8524eadda94df0ab2dbb2ef5a577e4d37c712897
@@ -40,7 +40,7 @@ by default these will save to `~/.objathor-assets/...`, you can change this dire
 ## Usage
 You can use the following command to generate a new environment.
 ```
-python holodeck/main.py --query "a living room" --openai_api_key <OPENAI_API_KEY>
+python ai2holodeck/main.py --query "a living room" --openai_api_key <OPENAI_API_KEY>
 ```
 Our system uses `gpt-4o-2024-05-13`, **so please ensure you have access to it.**
 
