@@ -27,9 +27,10 @@ python -m pip install -e .
 python -m pip install --extra-index-url https://ai2thor-pypi.allenai.org ai2thor==0+8524eadda94df0ab2dbb2ef5a577e4d37c712897
 ```
 
-On Linux, `libvulkan1` is required:
+On Linux:
 ```bash
-apt-get -y install libvulkan1
+apt-get -y install libvulkan1 pciutils xserver-xorg
+ai2thor-xorg start
 ```
 
 ## Data

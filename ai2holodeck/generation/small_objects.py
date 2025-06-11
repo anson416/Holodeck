@@ -6,14 +6,13 @@ import torch
 import torch.nn.functional as F
 from ai2thor.controller import Controller
 from ai2thor.hooks.procedural_asset_hook import ProceduralAssetHookRunner
-from ai2thor.platform import CloudRendering
 from langchain import OpenAI
 from procthor.constants import FLOOR_Y
 from procthor.utils.types import Vector3
 
 from ai2holodeck.constants import THOR_COMMIT_ID
 from ai2holodeck.generation.objaverse_retriever import ObjathorRetriever
-from ai2holodeck.generation.utils import get_annotations, get_bbox_dims, get_secondary_properties, is_linux
+from ai2holodeck.generation.utils import get_annotations, get_bbox_dims, get_secondary_properties
 
 
 class SmallObjectGenerator:
@@ -285,7 +284,6 @@ class SmallObjectGenerator:
                 asset_symlink=True,
                 verbose=True,
             ),
-            platform=CloudRendering if is_linux() else None,
         )
         return controller
 

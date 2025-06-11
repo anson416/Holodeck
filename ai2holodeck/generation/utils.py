@@ -8,16 +8,11 @@ import compress_json
 import numpy as np
 from ai2thor.controller import Controller
 from ai2thor.hooks.procedural_asset_hook import ProceduralAssetHookRunner
-from ai2thor.platform import CloudRendering
 from moviepy.editor import CompositeVideoClip, ImageSequenceClip, TextClip, concatenate_videoclips
 from PIL import Image
 from tqdm import tqdm
 
 from ai2holodeck.constants import HOLODECK_BASE_DATA_DIR, THOR_COMMIT_ID
-
-
-def is_linux():
-    return platform.system() == "Linux"
 
 
 def all_edges_white(img):
@@ -56,7 +51,6 @@ def get_top_down_frame(scene, objaverse_asset_dir, width=1024, height=1024):
             asset_symlink=True,
             verbose=True,
         ),
-        platform=CloudRendering if is_linux() else None,
     )
 
     # Setup the top-down camera
@@ -116,7 +110,6 @@ def get_top_down_frame_ithor(scene, objaverse_asset_dir, width=1024, height=1024
             asset_symlink=True,
             verbose=True,
         ),
-        platform=CloudRendering if is_linux() else None,
     )
 
     controller.reset(scene)
@@ -177,7 +170,6 @@ def get_room_images(scene, objaverse_asset_dir, width=1024, height=1024):
             asset_symlink=True,
             verbose=True,
         ),
-        platform=CloudRendering if is_linux() else None,
     )
 
     wall_height = max([point["y"] for point in scene["walls"][0]["polygon"]])
@@ -241,7 +233,6 @@ def ithor_video(scene, objaverse_asset_dir, width, height, scene_type):
             asset_symlink=True,
             verbose=True,
         ),
-        platform=CloudRendering if is_linux() else None,
     )
 
     event = controller.step(action="GetMapViewCameraProperties", raise_for_failure=True)
@@ -321,7 +312,6 @@ def room_video(scene, objaverse_asset_dir, width, height):
             asset_symlink=True,
             verbose=True,
         ),
-        platform=CloudRendering if is_linux() else None,
     )
 
     try:

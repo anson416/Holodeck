@@ -5,10 +5,8 @@ import ai2thor
 import compress_json
 from ai2thor.controller import Controller
 from ai2thor.hooks.procedural_asset_hook import ProceduralAssetHookRunner
-from ai2thor.platform import CloudRendering
 
 from ai2holodeck.constants import HOLODECK_BASE_DATA_DIR, OBJATHOR_ASSETS_DIR, THOR_COMMIT_ID
-from ai2holodeck.generation.utils import is_linux
 
 parser = ArgumentParser()
 parser.add_argument(
@@ -41,7 +39,6 @@ controller = Controller(
         asset_symlink=True,
         verbose=True,
     ),
-    platform=CloudRendering if is_linux() else None,
 )
 
 
