@@ -48,23 +48,31 @@ def generate_single_scene(args):
         print("Generating from an empty scene.")
         scene = args.model.get_empty_scene()
 
-    try:
-        _, save_dir = args.model.generate_scene(
-            scene=scene,
-            query=args.query,
-            save_dir=args.save_dir,
-            used_assets=args.used_assets,
-            generate_image=ast.literal_eval(args.generate_image),
-            generate_video=ast.literal_eval(args.generate_video),
-            add_ceiling=ast.literal_eval(args.add_ceiling),
-            add_time=ast.literal_eval(args.add_time),
-            use_constraint=ast.literal_eval(args.use_constraint),
-            use_milp=ast.literal_eval(args.use_milp),
-            random_selection=ast.literal_eval(args.random_selection),
-        )
-    except:
-        print(f"[ERROR] Could not generate scene from {args.query}. Traceback:\n{traceback.format_exc()}")
-        return
+    max_retries = 10
+    for t in range(1 + max_retries):
+        try:
+            _, save_dir = args.model.generate_scene(
+                scene=scene,
+                query=args.query,
+                save_dir=args.save_dir,
+                folder_name=args.folder_name,
+                used_assets=args.used_assets,
+                generate_image=ast.literal_eval(args.generate_image),
+                generate_video=ast.literal_eval(args.generate_video),
+                add_ceiling=ast.literal_eval(args.add_ceiling),
+                add_time=ast.literal_eval(args.add_time),
+                use_constraint=ast.literal_eval(args.use_constraint),
+                use_milp=ast.literal_eval(args.use_milp),
+                random_selection=ast.literal_eval(args.random_selection),
+            )
+        except:
+            if t == max_retries:
+                print(f"[ERROR] Could not generate scene from {args.query}. Traceback:\n{traceback.format_exc()}")
+                return
+            print(f"Retrying generation of scene from {args.query} ({t + 1}/{max_retries})")
+            continue
+        else:
+            break
 
     print(f"Generation complete for {args.query}. Scene saved and any other data saved to {save_dir}.")
 
