@@ -133,6 +133,7 @@ if __name__ == "__main__":
         default=None,
     )
     parser.add_argument("--save_dir", help="Directory to save scene to.", default="./data/scenes")
+    parser.add_argument("--folder_name", type=str, default=None, help="Folder name to save the scene in.")
     parser.add_argument(
         "--generate_image",
         help="Whether to generate an image of the scene.",

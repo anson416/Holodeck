@@ -232,6 +232,7 @@ class Holodeck:
         scene,
         query: str,
         save_dir: str,
+        folder_name: Optional[str] = None,
         used_assets=[],
         add_ceiling=False,
         generate_image=True,
@@ -319,10 +320,11 @@ class Holodeck:
         query_name = query.replace(" ", "_").replace("'", "")[:30]
         create_time = str(datetime.datetime.now()).replace(" ", "-").replace(":", "-").replace(".", "-")
 
-        if add_time:
-            folder_name = f"{query_name}-{create_time}"  # query name + time
-        else:
-            folder_name = query_name  # query name only
+        if folder_name is None:
+            if add_time:
+                folder_name = f"{create_time}-{query_name}"  # query name + time
+            else:
+                folder_name = query_name  # query name only
 
         save_dir = os.path.abspath(os.path.join(save_dir, folder_name))
         os.makedirs(save_dir, exist_ok=True)
@@ -336,7 +338,7 @@ class Holodeck:
         if generate_image:
             top_image = get_top_down_frame(scene, self.objaverse_asset_dir, 1024, 1024)
             top_image.show()
-            top_image.save(os.path.join(save_dir, f"{query_name}.png"))
+            top_image.save(os.path.join(save_dir, "render.png"))
 
         # save video
         if generate_video:
