@@ -71,7 +71,7 @@ class Holodeck:
         # initialize llm
         self.llm = OpenAI(
             model_name=model_name,
-            max_tokens=2048,
+            max_tokens=32768,
             openai_api_key=openai_api_key,
             openai_api_base=openai_api_base,
         )
