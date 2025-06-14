@@ -455,7 +455,7 @@ if __name__ == "__main__":
 
     if args.mode == "top_down_frame":
         image = get_top_down_frame(scene, args.objaverse_asset_dir)
-        image.show()
+        # image.show()
 
     elif args.mode == "room_video":
         video = room_video(scene, args.objaverse_asset_dir, 1024, 1024)
