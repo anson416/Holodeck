@@ -337,7 +337,7 @@ class Holodeck:
         # save top down image
         if generate_image:
             top_image = get_top_down_frame(scene, self.objaverse_asset_dir, 1024, 1024)
-            top_image.show()
+            # top_image.show()
             top_image.save(os.path.join(save_dir, "render.png"))
 
         # save video
