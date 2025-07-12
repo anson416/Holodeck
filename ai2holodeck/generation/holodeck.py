@@ -1,10 +1,10 @@
-import datetime
 import os
+from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
 import compress_json
 import open_clip
-from langchain.llms import OpenAI
+from openai import OpenAI
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 
@@ -69,11 +69,19 @@ class Holodeck:
             os.environ["OPENAI_ORG"] = openai_org
 
         # initialize llm
-        self.llm = OpenAI(
-            model_name=model_name,
-            max_tokens=32768,
-            openai_api_key=openai_api_key,
-            openai_api_base=openai_api_base,
+        client = OpenAI(
+            api_key=openai_api_key,
+            base_url=openai_api_base,
+            timeout=900,
+        )
+        self.llm = (
+            lambda prompt: client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": [{"type": "text", "text": prompt}]}],
+                max_tokens=16384,
+            )
+            .choices[0]
+            .message.content
         )
 
         # initialize CLIP
@@ -318,11 +326,11 @@ class Holodeck:
 
         # create folder
         query_name = query.replace(" ", "_").replace("'", "")[:30]
-        create_time = str(datetime.datetime.now()).replace(" ", "-").replace(":", "-").replace(".", "-")
+        create_time = datetime.now().strftime(r"%Y%m%d-%H%M%S")
 
         if folder_name is None:
             if add_time:
-                folder_name = f"{create_time}-{query_name}"  # query name + time
+                folder_name = f"{create_time}_{query_name}"  # query name + time
             else:
                 folder_name = query_name  # query name only
 
@@ -423,7 +431,7 @@ class Holodeck:
 
         # take the first 30 characters of the query as the folder name
         query_name = query.replace(" ", "_").replace("'", "")[:30]
-        create_time = str(datetime.datetime.now()).replace(" ", "-").replace(":", "-").replace(".", "-")
+        create_time = str(datetime.now()).replace(" ", "-").replace(":", "-").replace(".", "-")
 
         if add_time:
             folder_name = f"{query_name}-{create_time}"  # query name + time
