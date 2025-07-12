@@ -65,6 +65,8 @@ def generate_single_scene(args):
                 use_milp=ast.literal_eval(args.use_milp),
                 random_selection=ast.literal_eval(args.random_selection),
             )
+        except KeyboardInterrupt:
+            raise
         except:
             if t == max_retries:
                 print(f"[ERROR] Could not generate scene from {args.query}. Traceback:\n{traceback.format_exc()}")
