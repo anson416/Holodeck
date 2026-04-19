@@ -67,13 +67,17 @@ def _resolve_hdri(name: str | None, repo_root: Path) -> str | None:
     raise FileNotFoundError(f"HDRI not found: {name} (looked in data/hdri/)")
 
 
-def _build_scene(scene_data: dict, bg_rgb: tuple[float, float, float], hdri_path: str | None, hide_ceiling: bool) -> None:
+def _parse_hdris(s: str) -> list[str]:
+    """Comma-separated HDRI names. 'none' (or empty entry) means no HDRI."""
+    return [x.strip() for x in s.split(",") if x.strip()]
+
+
+def _build_scene(scene_data: dict, hide_ceiling: bool) -> None:
     bu.clear()
     bu.build_shell(scene_data, hide_ceiling=hide_ceiling)
     bu.place_objects(scene_data)
     bu.place_openings(scene_data)
     bu.add_lights(scene_data)
-    bu.set_world(bg_rgb, hdri_path)
 
 
 def main() -> None:
@@ -89,7 +93,7 @@ def main() -> None:
         default=[(128, 128, 128)],
         help="One or more R,G,B triples separated by ';' (e.g. '128,128,128;255,200,180'). Use 'none' to keep only the transparent render.",
     )
-    parser.add_argument("--hdri", type=str, default="none")
+    parser.add_argument("--hdri", type=_parse_hdris, default=["none"], help="Comma-separated HDRI names (looked up under data/hdri/<name>.{exr,hdr}). Use 'none' for no HDRI; mix freely, e.g. 'none,city,sunset'.")
     parser.add_argument("--samples", type=int, default=64)
     parser.add_argument("--fit-ratio", type=_csv_floats, default=[0.0], help="0..1 lerp between bounding-sphere and tight-fit camera distance (genxr-style).")
     parser.add_argument("--engine", choices=["CYCLES", "BLENDER_EEVEE"], default="CYCLES")
@@ -108,19 +112,23 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     repo_root = Path(__file__).resolve().parent.parent
-    hdri_path = _resolve_hdri(args.hdri, repo_root)
-    hdri_tag = "none" if hdri_path is None else Path(hdri_path).stem
+    hdri_specs: list[tuple[str, str | None]] = []  # (tag, path or None)
+    for name in args.hdri:
+        path = _resolve_hdri(name, repo_root)
+        tag = "none" if path is None else Path(path).stem
+        hdri_specs.append((tag, path))
     bg_colors: list[tuple[int, int, int]] = args.bg_color
 
-    # Geometry/world built once. World bg color is only for lighting fallback
-    # when no HDRI is given; the visible background is handled via transparent
-    # rendering + PIL compositing below.
-    _build_scene(scene_data, (0.5, 0.5, 0.5), hdri_path, hide_ceiling=not args.show_ceiling)
+    # Geometry + objects + JSON lights are built once. World (HDRI) is rebuilt
+    # per HDRI inside the loop. Background color is composited via PIL after
+    # rendering with film_transparent=True.
+    _build_scene(scene_data, hide_ceiling=not args.show_ceiling)
 
     stem = scene_path.stem
-    combos = list(itertools.product(args.resolutions, args.pitches, args.yaws, args.focal, args.fit_ratio))
+    combos = list(itertools.product(args.resolutions, args.pitches, args.yaws, args.focal, args.fit_ratio, hdri_specs))
     print(f"[render] {len(combos)} geometry render(s), {max(1, len(bg_colors))} bg variant(s) each -> {out_dir}")
-    for res, pitch, yaw, focal, fit in combos:
+    for res, pitch, yaw, focal, fit, (hdri_tag, hdri_path) in combos:
+        bu.set_world((0.5, 0.5, 0.5), hdri_path)
         bu.orbit_camera(
             scene_data,
             pitch_deg=pitch,
