@@ -704,20 +704,22 @@ def orbit_camera(
     cam_obj = bpy.data.objects.new("Cam", cam_data)
     bpy.context.scene.collection.objects.link(cam_obj)
 
-    pitch = math.radians(pitch_deg)
-    yaw = math.radians(yaw_deg)
-    # Direction from scene center toward the camera (unit).
-    back = Vector(
-        (
-            math.cos(pitch) * math.sin(yaw),
-            math.cos(pitch) * math.cos(yaw),
-            math.sin(pitch),
-        )
-    )
+    # Compose camera orientation via Euler so yaw remains meaningful at pitch=90.
+    # Our convention: pitch_deg=0 -> horizontal, pitch_deg=90 -> looking straight down.
+    # Blender cameras look along -Z locally; rotate +X by (90-pitch) then around +Z by yaw.
+    rx = math.radians(90.0 - pitch_deg)
+    rz = math.radians(yaw_deg)
+    cam_rot = Euler((rx, 0.0, rz), "XYZ")
+    rot_mat = cam_rot.to_matrix()
+    view_dir = (rot_mat @ Vector((0.0, 0.0, -1.0))).normalized()
+    right = (rot_mat @ Vector((1.0, 0.0, 0.0))).normalized()
+    up = (rot_mat @ Vector((0.0, 1.0, 0.0))).normalized()
+    back = -view_dir  # center -> camera direction
 
     # Provisional camera placement so wall culling can use its location.
     provisional_r = max(diag, 4.0) * 2.0
     cam_obj.location = center + back * provisional_r
+    cam_obj.rotation_euler = cam_rot
     if cull_walls:
         cull_near_walls(scene, cam_obj)
 
@@ -733,19 +735,12 @@ def orbit_camera(
 
     if fit_ratio > 0.0 and verts:
         fov_y = 2 * math.atan(math.tan(fov_x / 2) / aspect_ratio)
-        forward = -back
-        up_hint = Vector((0.0, 0.0, 1.0))
-        right = forward.cross(up_hint)
-        if right.length < 1e-6:
-            right = Vector((1.0, 0.0, 0.0))
-        right.normalize()
-        up = right.cross(forward).normalized()
         fit_dist = 0.0
         for v in verts:
             r = v - center
             vx = r.dot(right)
             vy = r.dot(up)
-            vz = r.dot(-forward)
+            vz = r.dot(back)  # component along center->camera
             dist_x = vz + abs(vx) / math.tan(fov_x / 2)
             dist_y = vz + abs(vy) / math.tan(fov_y / 2)
             fit_dist = max(fit_dist, dist_x, dist_y)
@@ -755,9 +750,7 @@ def orbit_camera(
 
     cam_obj.location = center + back * distance
     cam_data.clip_end = distance + 2 * radius * 1.01
-
-    direction = (center - cam_obj.location).normalized()
-    cam_obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+    cam_obj.rotation_euler = cam_rot
 
     bpy.context.scene.camera = cam_obj
     return cam_obj
