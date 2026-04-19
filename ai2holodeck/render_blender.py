@@ -34,11 +34,25 @@ def _csv_ints(s: str) -> list[int]:
     return [int(x) for x in s.split(",") if x.strip()]
 
 
-def _parse_rgb(s: str) -> tuple[int, int, int]:
-    parts = [int(x) for x in s.split(",")]
-    if len(parts) != 3:
-        raise argparse.ArgumentTypeError("--bg-color must be R,G,B")
-    return tuple(parts)  # type: ignore[return-value]
+def _parse_bg_colors(s: str) -> list[tuple[int, int, int]]:
+    """Parse one or more R,G,B triples separated by ';' — e.g. '255,0,0;0,255,0'."""
+    s = s.strip()
+    if not s or s.lower() == "none":
+        return []
+    out: list[tuple[int, int, int]] = []
+    for chunk in s.split(";"):
+        parts = [int(x) for x in chunk.split(",")]
+        if len(parts) != 3:
+            raise argparse.ArgumentTypeError(f"bad bg color: {chunk!r} (expected R,G,B)")
+        out.append((parts[0], parts[1], parts[2]))
+    return out
+
+
+def _composite_bg(alpha_png: str, out_png: str, color: tuple[int, int, int]) -> None:
+    from PIL import Image  # local import so bpy-only runs don't require PIL globally
+    img = Image.open(alpha_png).convert("RGBA")
+    bg = Image.new("RGBA", img.size, (*color, 255))
+    Image.alpha_composite(bg, img).convert("RGB").save(out_png)
 
 
 def _resolve_hdri(name: str | None, repo_root: Path) -> str | None:
@@ -69,7 +83,12 @@ def main() -> None:
     parser.add_argument("--pitches", type=_csv_floats, default=[30.0])
     parser.add_argument("--yaws", type=_csv_floats, default=[0.0, 90.0, 180.0, 270.0])
     parser.add_argument("--focal", type=_csv_floats, default=[50.0])
-    parser.add_argument("--bg-color", type=_parse_rgb, default=(128, 128, 128))
+    parser.add_argument(
+        "--bg-color",
+        type=_parse_bg_colors,
+        default=[(128, 128, 128)],
+        help="One or more R,G,B triples separated by ';' (e.g. '128,128,128;255,200,180'). Use 'none' to keep only the transparent render.",
+    )
     parser.add_argument("--hdri", type=str, default="none")
     parser.add_argument("--samples", type=int, default=64)
     parser.add_argument("--fit-ratio", type=_csv_floats, default=[0.0], help="0..1 lerp between bounding-sphere and tight-fit camera distance (genxr-style).")
@@ -91,16 +110,16 @@ def main() -> None:
     repo_root = Path(__file__).resolve().parent.parent
     hdri_path = _resolve_hdri(args.hdri, repo_root)
     hdri_tag = "none" if hdri_path is None else Path(hdri_path).stem
-    bg_r, bg_g, bg_b = args.bg_color
-    bg_tag = f"{bg_r}-{bg_g}-{bg_b}"
-    bg_rgb_norm = (bg_r / 255.0, bg_g / 255.0, bg_b / 255.0)
+    bg_colors: list[tuple[int, int, int]] = args.bg_color
 
-    # Geometry/world are independent of camera; build once per (bg,hdri) only.
-    _build_scene(scene_data, bg_rgb_norm, hdri_path, hide_ceiling=not args.show_ceiling)
+    # Geometry/world built once. World bg color is only for lighting fallback
+    # when no HDRI is given; the visible background is handled via transparent
+    # rendering + PIL compositing below.
+    _build_scene(scene_data, (0.5, 0.5, 0.5), hdri_path, hide_ceiling=not args.show_ceiling)
 
     stem = scene_path.stem
     combos = list(itertools.product(args.resolutions, args.pitches, args.yaws, args.focal, args.fit_ratio))
-    print(f"[render] {len(combos)} render(s) -> {out_dir}")
+    print(f"[render] {len(combos)} geometry render(s), {max(1, len(bg_colors))} bg variant(s) each -> {out_dir}")
     for res, pitch, yaw, focal, fit in combos:
         bu.orbit_camera(
             scene_data,
@@ -111,13 +130,20 @@ def main() -> None:
             aspect_ratio=1.0,
             cull_walls=not args.no_cull_walls,
         )
-        fname = (
+        base = (
             f"{stem}__res{res}_pitch{pitch:g}_yaw{yaw:g}"
-            f"_focal{focal:g}_fit{fit:g}_bg{bg_tag}_hdri{hdri_tag}.png"
+            f"_focal{focal:g}_fit{fit:g}_hdri{hdri_tag}"
         )
-        path = out_dir / fname
-        print(f"[render] -> {path.name}")
-        bu.render(str(path), resolution=res, samples=args.samples, engine=args.engine)
+        alpha_path = out_dir / f"{base}_alpha.png"
+        print(f"[render] -> {alpha_path.name}")
+        bu.render(str(alpha_path), resolution=res, samples=args.samples, engine=args.engine, transparent=True)
+
+        if not bg_colors:
+            continue
+        for r, g, b in bg_colors:
+            composed = out_dir / f"{base}_bg{r}-{g}-{b}.png"
+            _composite_bg(str(alpha_path), str(composed), (r, g, b))
+            print(f"[render]    + {composed.name}")
 
 
 if __name__ == "__main__":

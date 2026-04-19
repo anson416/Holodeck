@@ -779,7 +779,7 @@ def _visible_world_vertices() -> list[Vector]:
 # ---------- render ----------
 
 
-def render(filepath: str, resolution: int, samples: int, engine: str) -> None:
+def render(filepath: str, resolution: int, samples: int, engine: str, transparent: bool = False) -> None:
     sc = bpy.context.scene
     sc.render.engine = engine
     sc.render.resolution_x = resolution
@@ -787,6 +787,8 @@ def render(filepath: str, resolution: int, samples: int, engine: str) -> None:
     sc.render.resolution_percentage = 100
     sc.render.filepath = filepath
     sc.render.image_settings.file_format = "PNG"
+    sc.render.image_settings.color_mode = "RGBA" if transparent else "RGB"
+    sc.render.film_transparent = transparent
     if engine == "CYCLES":
         sc.cycles.samples = samples
         sc.cycles.device = "CPU"
