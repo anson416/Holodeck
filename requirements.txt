@@ -1,5 +1,6 @@
+ai2thor==0+8524eadda94df0ab2dbb2ef5a577e4d37c712897
 cvxpy
-cchardet
+faust-cchardet
 pillow
 colorama
 open_clip_torch==2.28.0
@@ -26,3 +27,4 @@ black
 objathor
 editdistance
 moviepy==1.0.3
+bpy

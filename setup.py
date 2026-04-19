@@ -1,10 +1,12 @@
 import os
 from pathlib import Path
 
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 if __name__ == "__main__":
-    with Path(Path(__file__).parent, "README.md").open(encoding="utf-8") as file:
+    with Path(Path(__file__).parent, "README.md").open(
+        encoding="utf-8"
+    ) as file:
         long_description = file.read()
 
     def _read_reqs(relpath):
@@ -48,6 +50,7 @@ if __name__ == "__main__":
             "License :: OSI Approved :: MIT License",
             "Programming Language :: Python :: 3.9",
             "Programming Language :: Python :: 3.10",
+            "Programming Language :: Python :: 3.11",
         ],
         package_data={
             "objathor": ["generation/*/*.json", "generation/*.json"],

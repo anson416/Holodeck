@@ -21,10 +21,9 @@ Holodeck is based on [AI2-THOR](https://ai2thor.allenai.org/ithor/documentation/
 ## Installation
 After cloning the repo, you can install the required dependencies using the following commands:
 ```bash
-conda create -n holodeck python=3.10 -y
+conda create -n holodeck python=3.11 -y
 conda activate holodeck
-python -m pip install -e .
-python -m pip install --extra-index-url https://ai2thor-pypi.allenai.org ai2thor==0+8524eadda94df0ab2dbb2ef5a577e4d37c712897
+python -m pip install -e . --extra-index-url https://ai2thor-pypi.allenai.org
 ```
 
 On Linux:
