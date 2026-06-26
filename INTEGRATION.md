@@ -70,3 +70,35 @@ python generate_ablation_variants.py --scene_path <scene.json> --output_dir <dir
 Requires Python 3.10 with `bpy`, the AI2-THOR / Objathor asset stack, and an OpenAI-
 compatible LLM endpoint — none bundled. See the modified `constants.py` for the local
 asset paths.
+
+## Option B additions (paper Table 1 alignment)
+
+The per-factor render drivers were brought in line with the paper's Table 1 and the
+viewpoint sweep was split into pitch and yaw drivers:
+
+- `create_renders_1a.sh` resolution = 196, 224, 256, 336, 384, 448, 512, 768, 1024
+  (baseline background now gray 128, not white)
+- `create_renders_1b.sh` background = 6 grays (0, 65, 128, 186, 204, 255)
+- `create_renders_1b_chroma.sh` (new) background = chromatic red / green / blue
+- `create_renders_1c.sh` env map = all 8 HDRIs
+- `create_renders_1d.sh` focal = 16, 24, 35, 50, 85, 100, 200
+- `create_renders_2_pitch.sh` (new) pitch = 90, 75, 60, 45, 30, 15, 0 at yaw 0
+  (**pitch 90 = top-down** in `render_blender.py`'s convention)
+- `create_renders_2_yaw.sh` (new) yaw = 8 azimuths at 45° steps, at the oblique
+  pitch 45
+- `create_renders_2.sh` (the old combined pitch×yaw driver) was removed.
+
+`generate_ablation_variants.py` gained two probe families (now: reduced ×3,
+scramble, worst_match ×3, subst_within, subst_cross):
+
+- `scramble` — relocate every object within the scene's (x, z) footprint,
+  preserving the object set, y-height, rotation, and assets (y-up THOR scenes).
+- `subst_within` / `subst_cross` — swap each object for the best same-category
+  asset (different instance) / the best asset of a different category, layout
+  fixed. (`--skip_worst_match` still emits the model-free variants: reduced +
+  scramble.)
+
+Camera-convention note: Holodeck's top-down pitch (90) is the opposite of the
+bpa-based methods (genxr / HSM / LayoutVLM / IDesign, where 0 = top-down); the
+cross-method viewpoint analysis maps both onto a common tilt-from-top-down axis.
+

@@ -1,14 +1,13 @@
+#!/usr/bin/env bash
+# Phase 1a -- resolution sweep (paper Table 1). All other factors at baseline.
+# Camera convention: pitch 90 == top-down in render_blender.py.
 for scene_file in data/scenes/*/*.json; do
-    # Check if files exist to avoid running on an empty glob
     [ -e "$scene_file" ] || continue
-
     echo "Processing: $scene_file"
-
-    # Execute the python command
     python ai2holodeck/render_blender.py \
         --scene "$scene_file" \
-        --resolutions 224,256,384,448,512,640,768,1024 \
-        --bg-color 255,255,255 \
+        --resolutions 196,224,256,336,384,448,512,768,1024 \
+        --bg-color 128,128,128 \
         --hdri city \
         --focal 50 \
         --pitches 90 \
@@ -16,5 +15,4 @@ for scene_file in data/scenes/*/*.json; do
         --fit-ratio 1.0 \
         --no-cull-walls
 done
-
 echo "Batch rendering complete."

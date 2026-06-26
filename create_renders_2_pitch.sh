@@ -1,20 +1,19 @@
+#!/usr/bin/env bash
+# Phase 2 (pitch) -- camera pitch sweep at the baseline azimuth (yaw 0).
+# Camera convention: pitch 90 == top-down, pitch 0 == eye-level. The paper's
+# 7 pitch levels {0,15,30,45,60,75,90} are swept as tilt-from-top-down.
 for scene_file in data/scenes/*/*.json; do
-    # Check if files exist to avoid running on an empty glob
     [ -e "$scene_file" ] || continue
-
     echo "Processing: $scene_file"
-
-    # Execute the python command
     python ai2holodeck/render_blender.py \
         --scene "$scene_file" \
         --resolutions 512 \
         --bg-color 128,128,128 \
         --hdri city \
         --focal 50 \
-        --pitches 90,60 \
-        --yaws 0,30,60,90,120,150,180,210,240,270,300,330 \
+        --pitches 90,75,60,45,30,15,0 \
+        --yaws 0 \
         --fit-ratio 1.0 \
         --no-cull-walls
 done
-
 echo "Batch rendering complete."

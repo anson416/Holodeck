@@ -121,6 +121,39 @@ def make_reduced_variants(
     return variants
 
 
+def scramble_objects(scene: dict, seed: int) -> dict:
+    """Relocate every object to a random (x, z) within the scene's object
+    footprint, preserving the object set, y-height, rotation, and assets.
+
+    THOR scenes are y-up; only the floor-plane coordinates (x, z) are moved.
+    Pure: deterministic for a fixed seed, object ids/rotations unchanged.
+    """
+    out = copy.deepcopy(scene)
+    rng = random.Random(seed)
+    objs = out.get("objects", [])
+    pts = [o["position"] for o in objs if isinstance(o.get("position"), dict)]
+    if not pts:
+        return out
+    xs = [p["x"] for p in pts]
+    zs = [p["z"] for p in pts]
+    xmin, xmax = min(xs), max(xs)
+    zmin, zmax = min(zs), max(zs)
+    if xmax <= xmin:
+        xmin, xmax = xmin - 0.5, xmax + 0.5
+    if zmax <= zmin:
+        zmin, zmax = zmin - 0.5, zmax + 0.5
+    for o in objs:
+        p = o.get("position")
+        if isinstance(p, dict):
+            p["x"] = rng.uniform(xmin, xmax)
+            p["z"] = rng.uniform(zmin, zmax)  # keep p["y"]
+    return out
+
+
+def make_scramble_variant(scene: dict, seed: int) -> List[Tuple[str, dict]]:
+    return [("scramble", scramble_objects(scene, seed))]
+
+
 def pick_worst_match_assets(
     retriever: ObjathorRetriever,
     object_types: Set[str],
@@ -243,6 +276,49 @@ def make_worst_match_variants(
     return variants
 
 
+def make_substitution_variants(
+    scene: dict,
+    retriever: ObjathorRetriever,
+    size_constrained: bool,
+) -> List[Tuple[str, dict]]:
+    """Two substitution variants holding layout fixed and swapping assets:
+
+      subst_within -- swap each object for the BEST same-category match that is
+        not its current asset (semantically same, different instance).
+      subst_cross  -- swap each object for the best asset of a DIFFERENT
+        category (object identity changed, position preserved).
+    """
+    object_types: Set[str] = set()
+    name_to_type: Dict[str, str] = {}
+    for obj in scene["objects"]:
+        name = object_name_from_obj(obj)
+        t = object_type_query(name)
+        object_types.add(t)
+        name_to_type[name] = t
+
+    # Best same-category asset (excluding the object's own asset) per type.
+    within_map: Dict[str, List[str]] = {}
+    best_by_type: Dict[str, str] = {}
+    for t in object_types:
+        results = retriever.retrieve([t], threshold=-1e9)  # descending by score
+        ids = [r[0] for r in results] if results else []
+        best_by_type[t] = ids[0] if ids else ""
+        within_map[t] = [ids[0] if ids else ""]  # single pick (index 0)
+
+    # Cross-category: assign each type the best asset of a different type.
+    types_sorted = sorted(t for t in object_types if best_by_type.get(t))
+    cross_map: Dict[str, List[str]] = {}
+    for i, t in enumerate(types_sorted):
+        other = types_sorted[(i + 1) % len(types_sorted)] if len(types_sorted) > 1 else t
+        cross_map[t] = [best_by_type.get(other, "")]
+
+    variants = [
+        ("subst_within", apply_asset_swap(scene, 0, within_map, retriever.database)),
+        ("subst_cross", apply_asset_swap(scene, 0, cross_map, retriever.database)),
+    ]
+    return variants
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scene_path", required=True)
@@ -276,16 +352,31 @@ def main():
             json.dump(variant, f)
         print(f"  wrote {out_path} (n={len(variant['objects'])})")
 
+    # layout-scramble variant (no models needed)
+    for tag, variant in make_scramble_variant(scene, args.seed):
+        out_path = os.path.join(args.output_dir, f"{base_name}_{tag}.json")
+        with open(out_path, "w") as f:
+            json.dump(variant, f)
+        print(f"  wrote {out_path} (scramble)")
+
     if args.skip_worst_match:
         return
 
-    print("Loading CLIP + SBERT for worst-match asset swap...")
+    print("Loading CLIP + SBERT for asset swaps...")
     retriever = build_retriever()
 
     swaps = make_worst_match_variants(
         scene, retriever, args.worst_match_indices, args.size_constrained
     )
     for tag, variant in swaps:
+        out_path = os.path.join(args.output_dir, f"{base_name}_{tag}.json")
+        with open(out_path, "w") as f:
+            json.dump(variant, f)
+        print(f"  wrote {out_path}")
+
+    # within / cross-category substitution variants
+    subst = make_substitution_variants(scene, retriever, args.size_constrained)
+    for tag, variant in subst:
         out_path = os.path.join(args.output_dir, f"{base_name}_{tag}.json")
         with open(out_path, "w") as f:
             json.dump(variant, f)
