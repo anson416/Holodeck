@@ -10,10 +10,15 @@ OBJATHOR_ASSETS_BASE_DIR = os.environ.get(
     "OBJATHOR_ASSETS_BASE_DIR", os.path.expanduser("~/.objathor-assets")
 )
 
-OBJATHOR_VERSIONED_DIR = os.path.join(OBJATHOR_ASSETS_BASE_DIR, ASSETS_VERSION)
-OBJATHOR_ASSETS_DIR = os.path.join(OBJATHOR_VERSIONED_DIR, "assets")
-OBJATHOR_FEATURES_DIR = os.path.join(OBJATHOR_VERSIONED_DIR, "features")
-OBJATHOR_ANNOTATIONS_PATH = os.path.join(OBJATHOR_VERSIONED_DIR, "annotations.json.gz")
+# OBJATHOR_VERSIONED_DIR = os.path.join(OBJATHOR_ASSETS_BASE_DIR, ASSETS_VERSION)
+# OBJATHOR_ASSETS_DIR = os.path.join(OBJATHOR_VERSIONED_DIR, "assets")
+# OBJATHOR_FEATURES_DIR = os.path.join(OBJATHOR_VERSIONED_DIR, "features")
+# OBJATHOR_ANNOTATIONS_PATH = os.path.join(OBJATHOR_VERSIONED_DIR, "annotations.json.gz")
+OBJATHOR_ASSETS_DIR = "/Users/anson/Projects/SceneEval/_data/objathor-assets"
+OBJATHOR_FEATURES_DIR = "/Users/anson/.objathor-assets/2023_09_23/features"
+OBJATHOR_ANNOTATIONS_PATH = (
+    "/Users/anson/.objathor-assets/2023_09_23/annotations.json.gz"
+)
 
 HOLODECK_BASE_DATA_DIR = os.path.join(
     OBJATHOR_ASSETS_BASE_DIR, "holodeck", HD_BASE_VERSION
