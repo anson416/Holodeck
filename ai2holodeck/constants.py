@@ -37,7 +37,10 @@ else:
     THOR_COMMIT_ID = "3213d486cd09bcbafce33561997355983bdf8d1a"
 
 # LLM_MODEL_NAME = "gpt-4-1106-preview"
-LLM_MODEL_NAME = "gpt-4o-2024-05-13"
+# Text-layout role standardised on a single pinned snapshot for the audit
+# (Holodeck's high-level layout reasoning is text-agnostic). Overridable via
+# --model_name on the CLI.
+LLM_MODEL_NAME = "gpt-5.1-2025-11-13"
 
 DEBUGGING = os.environ.get("DEBUGGING", "0").lower() in [
     "1",
