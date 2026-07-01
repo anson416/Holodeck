@@ -17,7 +17,7 @@ from ai2holodeck.constants import (
     OBJATHOR_ANNOTATIONS_PATH,
     OBJATHOR_ASSETS_DIR,
     OBJATHOR_FEATURES_DIR,
-    OBJATHOR_VERSIONED_DIR,
+    # OBJATHOR_VERSIONED_DIR,
 )
 from ai2holodeck.generation.ceiling_objects import CeilingObjectGenerator
 from ai2holodeck.generation.doors import DoorGenerator
@@ -37,7 +37,7 @@ from ai2holodeck.generation.windows import WindowGenerator
 
 def confirm_paths_exist():
     for p in [
-        OBJATHOR_VERSIONED_DIR,
+        # OBJATHOR_VERSIONED_DIR,
         OBJATHOR_ASSETS_DIR,
         OBJATHOR_FEATURES_DIR,
         OBJATHOR_ANNOTATIONS_PATH,

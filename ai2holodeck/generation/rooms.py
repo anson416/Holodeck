@@ -59,7 +59,19 @@ class FloorPlanGenerator:
         return rooms
 
     def get_plan(self, query, raw_plan, visualize=False):
-        parsed_plan = self.parse_raw_plan(raw_plan)
+        for _attempt in range(3):
+            try:
+                parsed_plan = self.parse_raw_plan(raw_plan)
+                break
+            except (SyntaxError, ValueError, IndexError) as e:
+                if _attempt < 2:
+                    print(f"[rooms] parse_raw_plan failed ({e}), retrying LLM call…")
+                    floor_plan_prompt = self.floor_plan_template.format(
+                        input=query, additional_requirements="N/A"
+                    )
+                    raw_plan = self.llm(floor_plan_prompt)
+                else:
+                    raise
 
         # select materials
         all_designs = []
