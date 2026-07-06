@@ -71,6 +71,7 @@ def generate_single_scene(args):
             if t == max_retries:
                 print(f"[ERROR] Could not generate scene from {args.query}. Traceback:\n{traceback.format_exc()}")
                 return
+            scene.pop("raw_floor_plan", None)  # force fresh LLM floor plan on retry
             print(f"Retrying generation of scene from {args.query} ({t + 1}/{max_retries})")
             continue
         else:
