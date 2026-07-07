@@ -284,7 +284,7 @@ class Holodeck:
             )
             scene["small_objects"] = small_objects
             scene["receptacle2small_objects"] = receptacle2small_objects
-        except:
+        except Exception:
             scene["small_objects"] = []
             print("Failed to generate small objects")
 

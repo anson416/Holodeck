@@ -437,7 +437,7 @@ class FloorObjectGenerator:
                     constraints_cleaned.append(constraint)
             object2constraints_cleaned[object_name] = constraints_cleaned
 
-        return object2constraints
+        return object2constraints_cleaned
 
     def order_objects_by_size(self, selected_floor_objects):
         ordered_floor_objects = []
@@ -541,6 +541,8 @@ class DFS_Solver_Floor:
         return max_solution
 
     def get_max_solution(self, solutions):
+        if len(solutions) == 0:
+            return {}
         path_weights = []
         for solution in solutions:
             path_weights.append(sum([obj[-1] for obj in solution.values()]))
@@ -1181,7 +1183,7 @@ class DFS_Solver_Floor:
                     target_object_dim = object_dim_1
                     return target_object_dim
 
-            if not None:
+            if target_object_dim is None:
                 for object_name_1, object_properties in placed_objects.items():
                     if object_name_1 == target_object_name:
                         x, y, rotation, target_object_dim = parse_object_properties(

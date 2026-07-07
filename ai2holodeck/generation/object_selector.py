@@ -155,7 +155,9 @@ class ObjectSelector:
 
         if plan_1 is None:
             print(f"Error while extracting the JSON for {room_type}.")
-            return result
+            # return a 2-tuple so the caller's `for room_type, result in results`
+            # unpacking stays consistent; result is empty so this room is skipped.
+            return room_type, {"floor": [], "wall": [], "plan": {}}
 
         (
             floor_objects,
@@ -461,7 +463,8 @@ class ObjectSelector:
                 break
             current_selected_asset_ids = []
             current_number_of_objects = len(selected_floor_objects)
-            for object_name, selected_asset_id in selected_floor_objects_all:
+            # iterate over a copy: the loop body mutates selected_floor_objects_all
+            for object_name, selected_asset_id in list(selected_floor_objects_all):
                 if selected_asset_id not in current_selected_asset_ids:
                     selected_asset_size = get_bbox_dims(self.database[selected_asset_id])
                     selected_asset_capacity = selected_asset_size["x"] * selected_asset_size["z"]
@@ -579,7 +582,8 @@ class ObjectSelector:
                 break
             current_selected_asset_ids = []
             current_number_of_objects = len(selected_wall_objects)
-            for object_name, selected_asset_id in selected_wall_objects_all:
+            # iterate over a copy: the loop body mutates selected_wall_objects_all
+            for object_name, selected_asset_id in list(selected_wall_objects_all):
                 if selected_asset_id not in current_selected_asset_ids:
                     selected_asset_size = get_bbox_dims(self.database[selected_asset_id])
                     selected_asset_capacity = selected_asset_size["x"]
