@@ -59,8 +59,9 @@ def _resync_sublists(scene: Dict[str, Any]) -> None:
         scene[key] = [o for o in scene.get(key, []) if o.get("id") in kept_ids]
 
 
-def _recompute_bbox_vertices(center_x_cm: float, center_z_cm: float,
-                              dims_m: Dict[str, float], rotation_y: float) -> List[List[float]]:
+def _recompute_bbox_vertices(
+    center_x_cm: float, center_z_cm: float, dims_m: Dict[str, float], rotation_y: float
+) -> List[List[float]]:
     """Axis-aligned bbox corners (cm) of an object of ``dims_m`` rotated by
     ``rotation_y`` degrees (multiples of 90) around ``(center_x_cm, center_z_cm)``.
     """
@@ -103,7 +104,9 @@ def remove_half(scene: Dict[str, Any], seed: int = 0) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # variant 2 — keep only the single biggest object
 # ---------------------------------------------------------------------------
-def keep_biggest_only(scene: Dict[str, Any], database: Dict[str, Any]) -> Dict[str, Any]:
+def keep_biggest_only(
+    scene: Dict[str, Any], database: Dict[str, Any]
+) -> Dict[str, Any]:
     """Keep only the placed object with the largest floor footprint (x*z)."""
     scene = copy.deepcopy(scene)
     objects = scene.get("objects", [])
@@ -126,8 +129,12 @@ def keep_biggest_only(scene: Dict[str, Any], database: Dict[str, Any]) -> Dict[s
 # ---------------------------------------------------------------------------
 # variant 3 — scramble object positions within their rooms
 # ---------------------------------------------------------------------------
-def scramble_within_rooms(scene: Dict[str, Any], database: Dict[str, Any],
-                          seed: int = 0, max_attempts: int = 200) -> Dict[str, Any]:
+def scramble_within_rooms(
+    scene: Dict[str, Any],
+    database: Dict[str, Any],
+    seed: int = 0,
+    max_attempts: int = 200,
+) -> Dict[str, Any]:
     """Randomly relocate each placed object to a free grid point inside its
     own room (keeping the same rotation/dims, or a random 90° rotation when
     that helps the object fit). No LLM, no DFS solver, no Unity.
@@ -146,8 +153,12 @@ def scramble_within_rooms(scene: Dict[str, Any], database: Dict[str, Any],
         rid = room["id"]
         if rid not in grid_cache:
             poly = _room_polygon_cm(room)
-            rx = max(v[0] for v in room["vertices"]) - min(v[0] for v in room["vertices"])
-            rz = max(v[1] for v in room["vertices"]) - min(v[1] for v in room["vertices"])
+            rx = max(v[0] for v in room["vertices"]) - min(
+                v[0] for v in room["vertices"]
+            )
+            rz = max(v[1] for v in room["vertices"]) - min(
+                v[1] for v in room["vertices"]
+            )
             grid_size = max(int(rx * 100 // 20), int(rz * 100 // 20), 1)
             solver = DFS_Solver_Floor(grid_size=grid_size)
             grid_cache[rid] = solver.create_grids(poly)
@@ -177,10 +188,12 @@ def scramble_within_rooms(scene: Dict[str, Any], database: Dict[str, Any],
         for pt in sample:
             for rot in rotations:
                 verts = _recompute_bbox_vertices(pt[0], pt[1], dims, rot)
-                obj_box = box(min(verts[0][0], verts[2][0]),
-                              min(verts[0][1], verts[2][1]),
-                              max(verts[0][0], verts[2][0]),
-                              max(verts[0][1], verts[2][1]))
+                obj_box = box(
+                    min(verts[0][0], verts[2][0]),
+                    min(verts[0][1], verts[2][1]),
+                    max(verts[0][0], verts[2][0]),
+                    max(verts[0][1], verts[2][1]),
+                )
                 if not poly.contains(obj_box):
                     continue
                 if any(obj_box.intersects(p) for p in placed_polys):
@@ -195,10 +208,12 @@ def scramble_within_rooms(scene: Dict[str, Any], database: Dict[str, Any],
             for pt in sample:
                 for rot in rotations:
                     verts = _recompute_bbox_vertices(pt[0], pt[1], dims, rot)
-                    obj_box = box(min(verts[0][0], verts[2][0]),
-                                  min(verts[0][1], verts[2][1]),
-                                  max(verts[0][0], verts[2][0]),
-                                  max(verts[0][1], verts[2][1]))
+                    obj_box = box(
+                        min(verts[0][0], verts[2][0]),
+                        min(verts[0][1], verts[2][1]),
+                        max(verts[0][0], verts[2][0]),
+                        max(verts[0][1], verts[2][1]),
+                    )
                     if poly.contains(obj_box):
                         chosen = (pt, rot, verts)
                         break
@@ -252,8 +267,9 @@ def select_worst_objects(scene: Dict[str, Any], holodeck) -> Dict[str, Any]:
     # cache per (object_type, description) -> filtered candidate list
     cache: Dict[tuple, List] = {}
 
-    def candidates_for(obj_type: str, description: str, location: str,
-                       room: Dict[str, Any]) -> List:
+    def candidates_for(
+        obj_type: str, description: str, location: str, room: Dict[str, Any]
+    ) -> List:
         key = (obj_type, description, location, room["id"])
         if key in cache:
             return cache[key]
@@ -261,30 +277,40 @@ def select_worst_objects(scene: Dict[str, Any], holodeck) -> Dict[str, Any]:
         room_vertices = [(x * 100, y * 100) for (x, y) in room["vertices"]]
         cands = retriever.retrieve(
             [f"a 3D model of {obj_type}, {description}"],
-            selector.similarity_threshold_floor if location == "floor"
-            else selector.similarity_threshold_wall,
+            (
+                selector.similarity_threshold_floor
+                if location == "floor"
+                else selector.similarity_threshold_wall
+            ),
         )
         if location == "floor":
             cands = [
-                c for c, ann in zip(
+                c
+                for c, ann in zip(
                     cands,
                     [get_annotations(database[c[0]]) for c in cands],
                 )
-                if ann["onFloor"] and not ann["onCeiling"]
-                and all(k not in ann["category"].lower()
-                        for k in ["door", "window", "frame"])
+                if ann["onFloor"]
+                and not ann["onCeiling"]
+                and all(
+                    k not in ann["category"].lower()
+                    for k in ["door", "window", "frame"]
+                )
             ]
             cands = selector.check_object_size(cands, room_size)
             cands = selector.check_floor_placement(cands[:20], room_vertices, scene)
         else:
+            cands = [c for c in cands if get_annotations(database[c[0]])["onWall"]]
             cands = [
-                c for c in cands
-                if get_annotations(database[c[0]])["onWall"]
+                c
+                for c in cands
+                if "door" not in get_annotations(database[c[0]])["category"].lower()
             ]
-            cands = [c for c in cands
-                     if "door" not in get_annotations(database[c[0]])["category"].lower()]
-            cands = [c for c in cands
-                     if "window" not in get_annotations(database[c[0]])["category"].lower()]
+            cands = [
+                c
+                for c in cands
+                if "window" not in get_annotations(database[c[0]])["category"].lower()
+            ]
             cands = selector.check_object_size(cands, room_size)
             cands = selector.check_thin_object(cands)
             cands = selector.check_wall_placement(cands[:20], room_vertices, scene)
@@ -320,8 +346,7 @@ def select_worst_objects(scene: Dict[str, Any], holodeck) -> Dict[str, Any]:
         cands = candidates_for(obj_type, description, location, room)
         # exclude the current asset; keep only those that fit the slot's
         # footprint (so the worst object still roughly fits the room/area)
-        viable = [c for c in cands
-                  if c[0] != asset_id and c[0] in database]
+        viable = [c for c in cands if c[0] != asset_id and c[0] in database]
         viable_with_footprint = []
         for c in viable:
             try:
@@ -344,7 +369,8 @@ def select_worst_objects(scene: Dict[str, Any], holodeck) -> Dict[str, Any]:
         obj["assetId"] = new_id
         obj["position"]["y"] = worst_dims["y"] / 2.0
         obj["vertices"] = _recompute_bbox_vertices(
-            center_x_cm, center_z_cm, worst_dims, rot_y)
+            center_x_cm, center_z_cm, worst_dims, rot_y
+        )
         swapped += 1
 
     _resync_sublists(scene)

@@ -46,36 +46,76 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Generate a Holodeck scene from a text prompt, with optional no-LLM variants.",
     )
-    p.add_argument("--query", "--prompt", dest="query",
-                   required=True, help="Textual scene description.")
-    p.add_argument("--openai_api_key", default=None,
-                   help="LLM API key. Falls back to OPENAI_API_KEY env var.")
-    p.add_argument("--openai_api_base", default=None,
-                   help="OpenAI-compatible base URL.")
-    p.add_argument("--openai_org", default=None,
-                   help="OpenAI org string. Falls back to OPENAI_ORG env var.")
-    p.add_argument("--model_name", default=LLM_MODEL_NAME,
-                   help="LLM model name.")
-    p.add_argument("--temperature", type=float, default=None,
-                   help="LLM sampling temperature. Omit for provider default.")
-    p.add_argument("--variants", action="store_true",
-                   help="Also generate the four variants (half / biggest-only / scrambled / worst-object).")
-    p.add_argument("--generate_image", type=str, default="False",
-                   help="Render a top-down image of each scene (needs Unity).")
-    p.add_argument("--single_room", type=str, default="False",
-                   help="Generate a single-room scene.")
-    p.add_argument("--use_constraint", type=str, default="True",
-                   help="Use LLM constraints for object placement.")
-    p.add_argument("--use_milp", type=str, default="False",
-                   help="Use MILP for the placement solver.")
-    p.add_argument("--random_selection", type=str, default="False",
-                   help="Use more-random object selection.")
-    p.add_argument("--add_ceiling", type=str, default="False",
-                   help="Add ceiling objects.")
-    p.add_argument("--output_dir", default=os.path.join(os.getcwd(), "outputs"),
-                   help="Root directory for run folders.")
-    p.add_argument("--seed", type=int, default=0,
-                   help="RNG seed for the deterministic variants.")
+    p.add_argument(
+        "--query",
+        "--prompt",
+        dest="query",
+        required=True,
+        help="Textual scene description.",
+    )
+    p.add_argument(
+        "--openai_api_key",
+        default=None,
+        help="LLM API key. Falls back to OPENAI_API_KEY env var.",
+    )
+    p.add_argument(
+        "--openai_api_base", default=None, help="OpenAI-compatible base URL."
+    )
+    p.add_argument(
+        "--openai_org",
+        default=None,
+        help="OpenAI org string. Falls back to OPENAI_ORG env var.",
+    )
+    p.add_argument("--model_name", default=LLM_MODEL_NAME, help="LLM model name.")
+    p.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="LLM sampling temperature. Omit for provider default.",
+    )
+    p.add_argument(
+        "--variants",
+        action="store_true",
+        help="Also generate the four variants (half / biggest-only / scrambled / worst-object).",
+    )
+    p.add_argument(
+        "--generate_image",
+        type=str,
+        default="False",
+        help="Render a top-down image of each scene (needs Unity).",
+    )
+    p.add_argument(
+        "--single_room", type=str, default="False", help="Generate a single-room scene."
+    )
+    p.add_argument(
+        "--use_constraint",
+        type=str,
+        default="True",
+        help="Use LLM constraints for object placement.",
+    )
+    p.add_argument(
+        "--use_milp",
+        type=str,
+        default="False",
+        help="Use MILP for the placement solver.",
+    )
+    p.add_argument(
+        "--random_selection",
+        type=str,
+        default="False",
+        help="Use more-random object selection.",
+    )
+    p.add_argument(
+        "--add_ceiling", type=str, default="False", help="Add ceiling objects."
+    )
+    p.add_argument(
+        "--output_dir",
+        default=os.path.join(os.getcwd(), "outputs"),
+        help="Root directory for run folders.",
+    )
+    p.add_argument(
+        "--seed", type=int, default=0, help="RNG seed for the deterministic variants."
+    )
     return p
 
 
@@ -87,8 +127,10 @@ def main(argv=None) -> int:
     if args.openai_org is None:
         args.openai_org = os.environ.get("OPENAI_ORG")
     if args.openai_api_key is None:
-        print("[ERROR] No API key provided (use --openai_api_key or set OPENAI_API_KEY).",
-              file=sys.stderr)
+        print(
+            "[ERROR] No API key provided (use --openai_api_key or set OPENAI_API_KEY).",
+            file=sys.stderr,
+        )
         return 2
 
     generate_image = str2bool(args.generate_image)
@@ -104,8 +146,10 @@ def main(argv=None) -> int:
     )
 
     # --- 1. generate the base scene (the only LLM spend) ------------------
-    print(f"[generate] query={args.query!r} model={args.model_name} "
-          f"temperature={args.temperature}")
+    print(
+        f"[generate] query={args.query!r} model={args.model_name} "
+        f"temperature={args.temperature}"
+    )
     scene = holodeck.get_empty_scene()
     base_scene, _ = holodeck.generate_scene(
         scene=scene,
@@ -143,14 +187,16 @@ def main(argv=None) -> int:
         "seed": args.seed,
         "timestamp_utc": timestamp,
     }
-    compress_json.dump(config, os.path.join(run_dir, "config.json"),
-                       json_kwargs=dict(indent=4))
+    compress_json.dump(
+        config, os.path.join(run_dir, "config.json"), json_kwargs=dict(indent=4)
+    )
 
     def save(sub: str, sc) -> None:
         sub_dir = os.path.join(run_dir, sub)
         os.makedirs(sub_dir, exist_ok=True)
-        compress_json.dump(sc, os.path.join(sub_dir, "scene.json"),
-                           json_kwargs=dict(indent=4))
+        compress_json.dump(
+            sc, os.path.join(sub_dir, "scene.json"), json_kwargs=dict(indent=4)
+        )
 
     # --- 3. base ----------------------------------------------------------
     save("base", base_scene)
