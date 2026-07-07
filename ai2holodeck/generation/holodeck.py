@@ -62,6 +62,7 @@ class Holodeck:
         single_room,
         model_name: str = LLM_MODEL_NAME,
         openai_api_base: Optional[str] = None,
+        temperature: Optional[float] = None,
     ):
         confirm_paths_exist()
 
@@ -74,20 +75,39 @@ class Holodeck:
             base_url=openai_api_base,
             timeout=900,
         )
-        self.llm = (
-            lambda prompt: client.chat.completions.create(
-                model=model_name,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [{"type": "text", "text": prompt}],
-                    }
-                ],
-                max_tokens=16384,
+
+        # Build the chat-completion kwargs once. `temperature` is only
+        # forwarded when explicitly set (some providers, e.g. o1-style
+        # reasoning models, reject the field entirely).
+        completion_kwargs = {
+            "model": model_name,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": ""}],
+                }
+            ],
+            "max_tokens": 16384,
+        }
+        if temperature is not None:
+            completion_kwargs["temperature"] = temperature
+
+        def _complete(prompt: str) -> str:
+            # mutate a shallow copy of the message content
+            kwargs = dict(completion_kwargs)
+            kwargs["messages"] = [
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": prompt}],
+                }
+            ]
+            return (
+                client.chat.completions.create(**kwargs)
+                .choices[0]
+                .message.content
             )
-            .choices[0]
-            .message.content
-        )
+
+        self.llm = _complete
 
         # initialize CLIP
         (
