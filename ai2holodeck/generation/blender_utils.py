@@ -222,6 +222,62 @@ def _surface_material(
     return _make_principled_material(f"{prefix}_fallback", rgb, rough)
 
 
+def _wall_material(
+    wall_id: str,
+    material_field: dict | None,
+    design_text: str | None,
+    roughness_default: float = 0.75,
+) -> bpy.types.Material:
+    """Wall material using bpa's back-face-culling dollhouse convention.
+
+    Camera-facing wall faces are made transparent (MixShader driven by
+    Geometry.Backfacing), so the camera always sees into the room while the far
+    walls -- and the doors/windows cut into them -- stay visible. ``albedo`` is
+    an image path when a material texture is on disk, else a palette RGB. The
+    node graph mirrors ``bpa.Builder.add_material(..., backface_culling=True)``
+    but is built directly so no dummy object / edit-context is needed.
+    """
+    name = (material_field or {}).get("name") if material_field else None
+    img = _resolve_material_image(name)
+    mat = bpy.data.materials.new(
+        f"mat_{wall_id}" if img is None else f"mat_{wall_id}_{name}"
+    )
+    mat.use_nodes = True
+    nt = mat.node_tree
+    for n in list(nt.nodes):
+        nt.nodes.remove(n)
+    links = nt.links
+    output = nt.nodes.new("ShaderNodeOutputMaterial")
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.inputs["Roughness"].default_value = roughness_default
+
+    if img is not None:
+        tex = nt.nodes.new("ShaderNodeTexImage")
+        try:
+            tex.image = bpy.data.images.load(img, check_existing=True)
+        except RuntimeError:
+            rgb, _ = _design_to_rgba(design_text)
+            bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
+            tex = None
+        if tex is not None:
+            links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    else:
+        rgb, _ = _design_to_rgba(design_text)
+        bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
+
+    # backface_culling branch: transparent where Geometry.Backfacing == 1
+    # (camera-facing back faces), opaque BSDF where == 0 (visible front faces).
+    mix = nt.nodes.new("ShaderNodeMixShader")
+    mix.inputs["Fac"].default_value = 1.0
+    transparent = nt.nodes.new("ShaderNodeBsdfTransparent")
+    geometry = nt.nodes.new("ShaderNodeNewGeometry")
+    links.new(bsdf.outputs["BSDF"], mix.inputs[2])
+    links.new(transparent.outputs["BSDF"], mix.inputs[1])
+    links.new(geometry.outputs["Backfacing"], mix.inputs["Fac"])
+    links.new(mix.outputs["Shader"], output.inputs["Surface"])
+    return mat
+
+
 # ---------- room shell ----------
 
 
@@ -358,7 +414,9 @@ def _solidify(obj: bpy.types.Object, thickness: float) -> None:
     mod.offset = 0.0  # symmetric around the original surface
 
 
-def build_shell(scene: dict, hide_ceiling: bool = True) -> None:
+def build_shell(
+    scene: dict, hide_ceiling: bool = True, backface_cull_walls: bool = True
+) -> None:
     wall_height = float(scene.get("wall_height", 2.7))
     rooms = scene.get("rooms", [])
     walls = scene.get("walls", [])
@@ -393,15 +451,24 @@ def build_shell(scene: dict, hide_ceiling: bool = True) -> None:
         )
         ceil.data.materials.append(ceil_mat)
 
-    # Walls.
+    # Walls. With back-face culling (the dollhouse convention), camera-facing
+    # wall faces render transparent so the interior + far walls stay visible.
     wall_design_by_room = {r["id"]: r.get("wall_design") for r in rooms}
     for wall in walls:
-        mat = _surface_material(
-            f"mat_{wall['id']}",
-            wall.get("material"),
-            wall_design_by_room.get(wall.get("roomId")),
-            roughness_default=0.75,
-        )
+        if backface_cull_walls:
+            mat = _wall_material(
+                wall["id"],
+                wall.get("material"),
+                wall_design_by_room.get(wall.get("roomId")),
+                roughness_default=0.75,
+            )
+        else:
+            mat = _surface_material(
+                f"mat_{wall['id']}",
+                wall.get("material"),
+                wall_design_by_room.get(wall.get("roomId")),
+                roughness_default=0.75,
+            )
         obj = _build_wall_with_holes(wall, openings, mat)
         if obj is not None:
             obj["holodeck_wall"] = True
@@ -561,19 +628,92 @@ def _opening_proxy(
     obj.data.materials.append(frame_mat)
 
 
-def place_openings(scene: dict) -> None:
+def _place_opening_glb(opening: dict, walls_by_id: dict[str, dict]) -> bool:
+    """Import a real door/window .glb and place it at ``assetPosition`` oriented
+    along its wall. Returns True on success, False if no .glb is on disk."""
+    asset_id = opening.get("assetId")
+    path = _glb_path(asset_id) if asset_id else None
+    if path is None:
+        return False
+    before = {o.name for o in bpy.context.scene.objects}
+    try:
+        bpy.ops.import_scene.gltf(filepath=path)
+    except RuntimeError:
+        return False
+    all_new = [o for o in bpy.context.scene.objects if o.name not in before]
+    new_objs = [o for o in all_new if o.parent is None]
+    if not new_objs:
+        return False
+
+    # Origin -> bbox center, same convention as furniture in place_objects.
+    bbox_min, bbox_max = _world_bbox(all_new)
+    bbox_center = (bbox_min + bbox_max) * 0.5
+    for o in new_objs:
+        o.location -= bbox_center
+    empty = bpy.data.objects.new(f"opening_{opening.get('id', asset_id)}", None)
+    bpy.context.scene.collection.objects.link(empty)
+    for o in new_objs:
+        o.parent = empty
+    empty.location = u2b(opening["assetPosition"])
+
+    # Yaw the opening to face along its wall's run direction.
+    wall = None
+    for wid in (opening.get("wall0"), opening.get("wall1")):
+        if wid and wid in walls_by_id:
+            wall = walls_by_id[wid]
+            break
+    if wall is not None:
+        try:
+            _, along, _, _, _ = _wall_basis(wall)
+            # Angle of wall run in Blender XY (Z-up): atan2(along.y, along.x).
+            yaw_bl = math.degrees(math.atan2(along.y, along.x))
+            empty.rotation_euler = Euler((0.0, 0.0, math.radians(yaw_bl)), "XYZ")
+        except Exception:
+            pass
+    return True
+
+
+def place_openings(scene: dict, use_real_glb: bool = True) -> None:
     door_mat = _make_principled_material("door_proxy", (0.35, 0.22, 0.14), 0.6)
     window_mat = _make_principled_material(
         "window_proxy", (0.55, 0.75, 0.85), 0.05, alpha=0.3
     )
+    walls_by_id = {w["id"]: w for w in scene.get("walls", [])}
     if os.path.isfile(DOOR_DB_PATH):
         db = _load_db(DOOR_DB_PATH, "_door_db_cache")
         for d in scene.get("doors", []) or []:
+            if use_real_glb and _place_opening_glb(d, walls_by_id):
+                continue
             _opening_proxy(d, db, door_mat)
     if os.path.isfile(WINDOW_DB_PATH):
         db = _load_db(WINDOW_DB_PATH, "_window_db_cache")
         for w in scene.get("windows", []) or []:
+            if use_real_glb and _place_opening_glb(w, walls_by_id):
+                continue
             _opening_proxy(w, db, window_mat)
+
+
+def build_scene(
+    scene: dict,
+    *,
+    hide_ceiling: bool = True,
+    backface_cull_walls: bool = True,
+    use_real_opening_glb: bool = True,
+) -> None:
+    """One-shot scene construction: reset + shell + objects + openings + lights.
+
+    Used by the Blender render driver. ``clear`` is called first so repeated
+    renders start from an empty blend. Walls use back-face culling by default
+    (dollhouse convention). Doors/windows use the real .glb when available, else
+    the database proxy box.
+    """
+    clear()
+    build_shell(
+        scene, hide_ceiling=hide_ceiling, backface_cull_walls=backface_cull_walls
+    )
+    place_objects(scene)
+    place_openings(scene, use_real_glb=use_real_opening_glb)
+    add_lights(scene)
 
 
 # ---------- lights ----------
