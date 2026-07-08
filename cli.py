@@ -9,10 +9,12 @@ Output layout (``--output_dir`` defaults to ``./outputs``)::
         config.json
         base/
             scene.json
-            renderings/            # only when --generate_image True
+            renderings/            # --generate_image True (Unity top-down.png)
+                                  # and/or --render / --render_all (Blender)
             meshes/                # only when --export_meshes True
         variant_01_half/           # --variants only
             scene.json
+            renderings/            # --render / --render_all (Blender)
             meshes/                # only when --export_meshes True
         variant_02_biggest-only/   # --variants only
             scene.json
@@ -25,12 +27,39 @@ Notes on the layout:
   * ``scene.json`` is the AI2-THOR-compatible scene. (Its name is illustrative;
     it is literally written as ``scene.json``.)
   * ``renderings/`` holds rendered images. The folder name **must** be
-    ``renderings`` whenever it exists; this is enforced by the CLI. Only the
-    base scene is rendered (variants are intentionally render-free so they stay
-    cheap — they never spawn the Unity controller).
+    ``renderings`` whenever it exists; this is enforced by the CLI.
+    ``--generate_image`` writes the Unity top-down as ``renderings/top-down.png``;
+    ``--render`` / ``--render_all`` write Blender renders as
+    ``renderings/render_res-<r>_focal-<f>_pitch-<p>_yaw-<y>_env-<env>.png``
+    (transparent master) and ``..._env-<env>_bg-<r>-<g>-<b>.png`` (background
+    composite). The two pipelines are independent and may both be on.
   * ``meshes/`` holds each placed object's 3D mesh + textures, exported as
     ``meshes/<assetId>/<assetId>.glb`` (+ ``albedo.jpg`` etc.). Populated only
     with ``--export_meshes``; omitted otherwise.
+
+Rendering (Blender) — two mutually-exclusive flags:
+  * ``--render``       - one config per scene: 512x512, white bg, 50mm, pitch 0
+                         (top-down), yaw 0, env "city". Transparent master +
+                         white-bg composite per scene.
+  * ``--render_all``   - the full OFAT grid (resolution / focal / pitch / yaw /
+                         env / background sweeps). See
+                         ``ai2holodeck/blender_render.py``.
+
+Rendering uses the vendored ``bpa`` renderer with the mandated conventions:
+two-step transparent-then-composite (HDRI still lights the transparent pass),
+``fit_ratio=1`` tight-fit framing, pitch 0 == top-down, and the dollhouse wall
+convention (camera-facing wall faces transparent via back-face culling, so the
+interior + far walls/doors/windows stay visible). HDRI files live under
+``<repo>/data/hdri/`` (override with ``--hdri_dir``).
+
+Two invocation modes (exactly one of ``--prompt`` / ``--path``):
+  * ``--prompt``  - generate the base scene first, then render base (+ variants
+                    if ``--variants``). ``--render`` is independent of
+                    ``--generate_image`` (Unity).
+  * ``--path``    - skip generation; render every ``base/`` and ``variant_*/``
+                    ``scene.json`` already present under the given
+                    ``outputs/<datetime>/`` directory. Re-runnable without the
+                    LLM/objathor assets/Unity.
 
 The four variants mutate only ``scene["objects"]`` (placed floor + wall +
 small objects). They never re-run the LLM, the DFS placement solver, or the
@@ -48,13 +77,16 @@ Example
 -------
 ::
 
+    # generate + variants + Blender render
     python cli.py --query "a living room" \\
         --openai_api_key $OPENAI_API_KEY \\
         --model_name gpt-4o \\
         --temperature 0.7 \\
         --variants \\
-        --generate_image True \\
-        --export_meshes
+        --render
+
+    # re-render an existing run with the full sweep (no LLM)
+    python cli.py --path outputs/20260708-120000 --render_all
 
 ============================================================================
 EXTERNAL LOCAL RESOURCES REQUIRED
@@ -165,13 +197,24 @@ def build_parser() -> argparse.ArgumentParser:
         description="Generate a Holodeck scene from a text prompt, with optional no-LLM variants.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    # --- prompt / LLM -----------------------------------------------------
+    # --- prompt / path (exactly one required) -----------------------------
     p.add_argument(
         "--query",
         "--prompt",
         dest="query",
-        required=True,
-        help="Textual scene description.",
+        default=None,
+        help="Textual scene description. Exactly one of --prompt / --path is "
+        "required. With --prompt the scene is generated first; --render then "
+        "renders the freshly-generated scenes.",
+    )
+    p.add_argument(
+        "--path",
+        dest="path",
+        default=None,
+        help="An existing outputs/<datetime>/ run directory to render in place "
+        "(no generation). Exactly one of --prompt / --path is required. With "
+        "--path and --render/--render-all, every base/ and variant_*/scene.json "
+        "under the path is rendered into its own renderings/ folder.",
     )
     p.add_argument(
         "--openai_api_key",
@@ -248,6 +291,42 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--seed", type=int, default=0, help="RNG seed for the deterministic variants."
+    )
+
+    # --- rendering (Blender) ----------------------------------------------
+    render_grp = p.add_argument_group("rendering (Blender)")
+    render_mx = render_grp.add_mutually_exclusive_group()
+    render_mx.add_argument(
+        "--render",
+        action="store_true",
+        help="Render each scene (base + variants) in Blender with one fixed "
+        "configuration: 512x512, white bg, 50mm, pitch 0 (top-down), yaw 0, "
+        "env 'city'. Writes a transparent master + a white-bg composite per "
+        "scene into renderings/. Independent of --generate_image (Unity).",
+    )
+    render_mx.add_argument(
+        "--render_all",
+        action="store_true",
+        help="Render each scene across the full OFAT grid (resolution, focal, "
+        "pitch, yaw, env, background sweeps). See ai2holodeck/blender_render.py.",
+    )
+    render_grp.add_argument(
+        "--hdri_dir",
+        default=None,
+        help="Directory with <env>.exr HDRI files (e.g. city.exr). Defaults "
+        "to <repo>/data/hdri.",
+    )
+    render_grp.add_argument(
+        "--render_samples",
+        type=int,
+        default=64,
+        help="Cycles samples per render (lower = faster, noisier).",
+    )
+    render_grp.add_argument(
+        "--render_engine",
+        choices=["CYCLES", "BLENDER_EEVEE"],
+        default="CYCLES",
+        help="Blender render engine.",
     )
 
     # --- external resource overrides (set as env vars before import) ----
@@ -354,9 +433,82 @@ def _export_meshes(scene, assets_dir: str, meshes_dir: str) -> int:
     return exported
 
 
+def _discover_scene_dirs(run_dir: str) -> list[str]:
+    """Find every ``<run_dir>/<scene>/scene.json`` (base + variant_*)."""
+    out = []
+    if not os.path.isdir(run_dir):
+        return out
+    for name in sorted(os.listdir(run_dir)):
+        scene_json = os.path.join(run_dir, name, "scene.json")
+        if os.path.isfile(scene_json):
+            out.append(os.path.join(run_dir, name))
+    return out
+
+
+def _render_scenes(args, scene_dirs: list[str]) -> None:
+    """Render each scene dir with Blender (``--render`` / ``--render_all``)."""
+    if not (args.render or args.render_all):
+        return
+    from ai2holodeck.blender_render import (
+        render_scene,
+        single_config,
+        render_all_configs,
+    )
+
+    configs = render_all_configs() if args.render_all else single_config()
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    hdri_dir = args.hdri_dir or os.path.join(repo_root, "data", "hdri")
+    print(
+        f"[render] {len(scene_dirs)} scene(s) x {len(configs)} camera config(s) "
+        f"-> each scene's renderings/"
+    )
+    for sd in scene_dirs:
+        scene_json = os.path.join(sd, "scene.json")
+        n = render_scene(
+            scene_json,
+            sd,
+            configs,
+            hdri_dir,
+            samples=args.render_samples,
+            engine=args.render_engine,
+        )
+        print(
+            f"[render] {os.path.basename(sd)}: {n} PNG(s) -> {os.path.join(sd, 'renderings')}"
+        )
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
 
+    # Exactly one of --prompt / --path is required.
+    if bool(args.query) == bool(args.path):
+        print(
+            "[ERROR] Pass exactly one of --prompt/--query (generate+render) or "
+            "--path (render existing scenes only).",
+            file=sys.stderr,
+        )
+        return 2
+    do_render = bool(args.render or args.render_all)
+
+    # --path mode: no generation, no LLM key, no objathor assets needed -- only
+    # Blender rendering of scenes already on disk.
+    if args.path is not None:
+        if not do_render:
+            print(
+                "[ERROR] --path requires --render or --render_all "
+                "(generation is not available in --path mode).",
+                file=sys.stderr,
+            )
+            return 2
+        run_dir = os.path.abspath(args.path)
+        scene_dirs = _discover_scene_dirs(run_dir)
+        if not scene_dirs:
+            print(f"[ERROR] No <dir>/scene.json found under {run_dir}", file=sys.stderr)
+            return 2
+        _render_scenes(args, scene_dirs)
+        return 0
+
+    # --- --prompt mode: generation -----------------------------------------
     if args.openai_api_key is None:
         args.openai_api_key = os.environ.get("OPENAI_API_KEY")
     if args.openai_org is None:
@@ -400,6 +552,10 @@ def main(argv=None) -> int:
             "use_milp": str2bool(args.use_milp),
             "random_selection": str2bool(args.random_selection),
             "add_ceiling": str2bool(args.add_ceiling),
+            "render": args.render,
+            "render_all": args.render_all,
+            "render_samples": args.render_samples,
+            "render_engine": args.render_engine,
         },
         "resources": {
             "objathor_assets_base_dir": args.objathor_assets_base_dir,
@@ -495,6 +651,11 @@ def main(argv=None) -> int:
     for name, n in summary:
         print(f"  {name:<{width}}  {n} objects")
     print(f"\nRun directory: {run_dir}")
+
+    # --- 4. Blender rendering (optional; no LLM/Unity) --------------------
+    if do_render:
+        scene_dirs = _discover_scene_dirs(run_dir)
+        _render_scenes(args, scene_dirs)
     return 0
 
 

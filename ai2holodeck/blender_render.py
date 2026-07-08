@@ -38,6 +38,7 @@ from ai2holodeck.generation import bpa, blender_utils as bu
 
 # isort: off
 import bpy  # type: ignore  # noqa: F401  (imported for side effects / availability)
+
 # isort: on
 
 
@@ -119,7 +120,11 @@ class RenderConfig:
 
 def _baseline_config(backgrounds) -> RenderConfig:
     return RenderConfig(
-        BASELINE_RES, BASELINE_FOCAL, BASELINE_PITCH, BASELINE_YAW, BASELINE_ENV,
+        BASELINE_RES,
+        BASELINE_FOCAL,
+        BASELINE_PITCH,
+        BASELINE_YAW,
+        BASELINE_ENV,
         backgrounds,
     )
 
@@ -150,7 +155,10 @@ def render_all_configs() -> list[RenderConfig]:
         c = {**base, **ov}
         k = (c["res"], c["focal"], c["pitch"], c["yaw"], c["env"])
         is_baseline = k == (
-            BASELINE_RES, BASELINE_FOCAL, BASELINE_PITCH, BASELINE_YAW,
+            BASELINE_RES,
+            BASELINE_FOCAL,
+            BASELINE_PITCH,
+            BASELINE_YAW,
             BASELINE_ENV,
         )
         if k in seen:
@@ -159,7 +167,9 @@ def render_all_configs() -> list[RenderConfig]:
         # Baseline camera gets all 10 backgrounds (white deduped inside).
         # Every other config gets only the white composite.
         bgs = BACKGROUNDS if is_baseline else [WHITE_BG]
-        out.append(RenderConfig(c["res"], c["focal"], c["pitch"], c["yaw"], c["env"], bgs))
+        out.append(
+            RenderConfig(c["res"], c["focal"], c["pitch"], c["yaw"], c["env"], bgs)
+        )
 
     # Grid 1: resolution
     for r in RESOLUTIONS:
