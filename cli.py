@@ -7,11 +7,30 @@ Output layout (``--output_dir`` defaults to ``./outputs``)::
 
     outputs/<UTC-timestamp>/
         config.json
-        base/scene.json
-        variant_01_half/scene.json          (--variants only)
-        variant_02_biggest-only/scene.json  (--variants only)
-        variant_03_scrambled/scene.json     (--variants only)
-        variant_04_worst-object/scene.json  (--variants only)
+        base/
+            scene.json
+            renderings/            # only when --generate_image True
+            meshes/                # only when --export_meshes True
+        variant_01_half/           # --variants only
+            scene.json
+            meshes/                # only when --export_meshes True
+        variant_02_biggest-only/   # --variants only
+            scene.json
+        variant_03_scrambled/      # --variants only
+            scene.json
+        variant_04_worst-object/   # --variants only
+            scene.json
+
+Notes on the layout:
+  * ``scene.json`` is the AI2-THOR-compatible scene. (Its name is illustrative;
+    it is literally written as ``scene.json``.)
+  * ``renderings/`` holds rendered images. The folder name **must** be
+    ``renderings`` whenever it exists; this is enforced by the CLI. Only the
+    base scene is rendered (variants are intentionally render-free so they stay
+    cheap — they never spawn the Unity controller).
+  * ``meshes/`` holds each placed object's 3D mesh + textures, exported as
+    ``meshes/<assetId>/<assetId>.glb`` (+ ``albedo.jpg`` etc.). Populated only
+    with ``--export_meshes``; omitted otherwise.
 
 The four variants mutate only ``scene["objects"]`` (placed floor + wall +
 small objects). They never re-run the LLM, the DFS placement solver, or the
@@ -33,7 +52,9 @@ Example
         --openai_api_key $OPENAI_API_KEY \\
         --model_name gpt-4o \\
         --temperature 0.7 \\
-        --variants
+        --variants \\
+        --generate_image True \\
+        --export_meshes
 
 ============================================================================
 EXTERNAL LOCAL RESOURCES REQUIRED
@@ -135,6 +156,7 @@ under ``data/scenes/``.
 import argparse
 import datetime
 import os
+import shutil
 import sys
 
 
@@ -213,6 +235,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--add_ceiling", type=str, default="False", help="Add ceiling objects."
     )
     p.add_argument(
+        "--export_meshes",
+        action="store_true",
+        help="Copy each placed object's .glb mesh + textures into a "
+        "``meshes/`` folder under every scene dir. Off by default (it can be "
+        "large).",
+    )
+    p.add_argument(
         "--output_dir",
         default=os.path.join(os.getcwd(), "outputs"),
         help="Root directory for run folders.",
@@ -273,6 +302,58 @@ def _apply_resource_env(args) -> None:
         os.environ["VLMUNR_OBJATHOR_ROOT"] = args.objathor_root
 
 
+def _query_name(query: str) -> str:
+    """Mirror ``Holodeck.generate_scene``'s folder/file naming so we can
+    locate the file it dumps, then rename it to ``scene.json``."""
+    q = query.replace("_", " ")
+    return q.replace(" ", "_").replace("'", "")[:30]
+
+
+def _organize_renderings(scene_dir: str) -> None:
+    """Move any ``render.png`` left by ``generate_scene`` into a folder named
+    exactly ``renderings``. The folder name is a hard requirement."""
+    render_png = os.path.join(scene_dir, "render.png")
+    if os.path.exists(render_png):
+        renderings_dir = os.path.join(scene_dir, "renderings")
+        os.makedirs(renderings_dir, exist_ok=True)
+        shutil.move(render_png, os.path.join(renderings_dir, "top-down.png"))
+
+
+def _rename_to_scene_json(scene_dir: str, query_name: str) -> str:
+    """Rename ``generate_scene``'s ``<query_name>.json`` dump to ``scene.json``.
+    Returns the final ``scene.json`` path (or the original path if the rename
+    was not needed)."""
+    src = os.path.join(scene_dir, f"{query_name}.json")
+    dst = os.path.join(scene_dir, "scene.json")
+    if os.path.exists(src) and not os.path.exists(dst):
+        shutil.move(src, dst)
+    return dst
+
+
+def _export_meshes(scene, assets_dir: str, meshes_dir: str) -> int:
+    """Copy each placed object's 3D mesh + textures into ``meshes/<assetId>/``.
+    Returns the number of unique assets exported."""
+    os.makedirs(meshes_dir, exist_ok=True)
+    seen = set()
+    exported = 0
+    for obj in scene.get("objects", []):
+        aid = obj.get("assetId")
+        if not aid or aid in seen:
+            continue
+        seen.add(aid)
+        src = os.path.join(assets_dir, aid)
+        if not os.path.isdir(src):
+            continue
+        dst = os.path.join(meshes_dir, aid)
+        os.makedirs(dst, exist_ok=True)
+        for fn in os.listdir(src):
+            s = os.path.join(src, fn)
+            if os.path.isfile(s):
+                shutil.copy2(s, os.path.join(dst, fn))
+        exported += 1
+    return exported
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -299,36 +380,7 @@ def main(argv=None) -> int:
     model_name = args.model_name or LLM_MODEL_NAME
     generate_image = str2bool(args.generate_image)
 
-    holodeck = Holodeck(
-        openai_api_key=args.openai_api_key,
-        openai_org=args.openai_org,
-        objaverse_asset_dir=OBJATHOR_ASSETS_DIR,
-        single_room=str2bool(args.single_room),
-        model_name=model_name,
-        openai_api_base=args.openai_api_base,
-        temperature=args.temperature,
-    )
-
-    # --- 1. generate the base scene (the only LLM spend) ------------------
-    print(
-        f"[generate] query={args.query!r} model={model_name} "
-        f"temperature={args.temperature}"
-    )
-    scene = holodeck.get_empty_scene()
-    base_scene, _ = holodeck.generate_scene(
-        scene=scene,
-        query=args.query,
-        save_dir=args.output_dir,
-        generate_image=generate_image,
-        generate_video=False,
-        add_ceiling=str2bool(args.add_ceiling),
-        add_time=False,  # we manage the folder name ourselves
-        use_constraint=str2bool(args.use_constraint),
-        use_milp=str2bool(args.use_milp),
-        random_selection=str2bool(args.random_selection),
-    )
-
-    # --- 2. lay out the run folder ---------------------------------------
+    # --- 1. lay out the run folder FIRST so generate_scene writes into it --
     timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%d-%H%M%S")
     run_dir = os.path.abspath(os.path.join(args.output_dir, timestamp))
     os.makedirs(run_dir, exist_ok=True)
@@ -342,6 +394,7 @@ def main(argv=None) -> int:
         "flags": {
             "variants": args.variants,
             "generate_image": generate_image,
+            "export_meshes": args.export_meshes,
             "single_room": str2bool(args.single_room),
             "use_constraint": str2bool(args.use_constraint),
             "use_milp": str2bool(args.use_milp),
@@ -361,37 +414,81 @@ def main(argv=None) -> int:
         config, os.path.join(run_dir, "config.json"), json_kwargs=dict(indent=4)
     )
 
-    def save(sub: str, sc) -> None:
-        sub_dir = os.path.join(run_dir, sub)
-        os.makedirs(sub_dir, exist_ok=True)
-        compress_json.dump(
-            sc, os.path.join(sub_dir, "scene.json"), json_kwargs=dict(indent=4)
+    holodeck = Holodeck(
+        openai_api_key=args.openai_api_key,
+        openai_org=args.openai_org,
+        objaverse_asset_dir=OBJATHOR_ASSETS_DIR,
+        single_room=str2bool(args.single_room),
+        model_name=model_name,
+        openai_api_base=args.openai_api_base,
+        temperature=args.temperature,
+    )
+
+    # --- 2. generate the base scene (the only LLM spend) ------------------
+    print(
+        f"[generate] query={args.query!r} model={model_name} "
+        f"temperature={args.temperature}"
+    )
+    qname = _query_name(args.query)
+    base_scene, base_dir = holodeck.generate_scene(
+        scene=holodeck.get_empty_scene(),
+        query=args.query,
+        save_dir=run_dir,
+        folder_name="base",  # write directly into run_dir/base
+        generate_image=generate_image,
+        generate_video=False,
+        add_ceiling=str2bool(args.add_ceiling),
+        add_time=False,  # use folder_name verbatim
+        use_constraint=str2bool(args.use_constraint),
+        use_milp=str2bool(args.use_milp),
+        random_selection=str2bool(args.random_selection),
+    )
+    # generate_scene dumps <qname>.json + render.png; normalise the layout.
+    _rename_to_scene_json(base_dir, qname)
+    _organize_renderings(base_dir)
+    mesh_n = 0
+    if args.export_meshes:
+        mesh_n = _export_meshes(
+            base_scene, OBJATHOR_ASSETS_DIR, os.path.join(base_dir, "meshes")
         )
+    print(f"[done] base -> {os.path.join(base_dir, 'scene.json')}")
+    if generate_image and os.path.isdir(os.path.join(base_dir, "renderings")):
+        print(f"[done] base renderings -> {os.path.join(base_dir, 'renderings')}")
+    if args.export_meshes:
+        print(f"[done] base meshes -> {mesh_n} assets")
 
-    # --- 3. base ----------------------------------------------------------
-    save("base", base_scene)
-    print(f"[done] base -> {os.path.join(run_dir, 'base', 'scene.json')}")
-
-    # --- 4. variants (no LLM spend) --------------------------------------
+    # --- 3. variants (no LLM spend) --------------------------------------
     summary = [("base", len(base_scene.get("objects", [])))]
     if args.variants:
         database = holodeck.object_retriever.database
-
-        half = variants.remove_half(base_scene, seed=args.seed)
-        save("variant_01_half", half)
-        summary.append(("variant_01_half", len(half.get("objects", []))))
-
-        biggest = variants.keep_biggest_only(base_scene, database)
-        save("variant_02_biggest-only", biggest)
-        summary.append(("variant_02_biggest-only", len(biggest.get("objects", []))))
-
-        scrambled = variants.scramble_within_rooms(base_scene, database, seed=args.seed)
-        save("variant_03_scrambled", scrambled)
-        summary.append(("variant_03_scrambled", len(scrambled.get("objects", []))))
-
-        worst = variants.select_worst_objects(base_scene, holodeck)
-        save("variant_04_worst-object", worst)
-        summary.append(("variant_04_worst-object", len(worst.get("objects", []))))
+        variant_jobs = [
+            ("variant_01_half", variants.remove_half(base_scene, seed=args.seed)),
+            (
+                "variant_02_biggest-only",
+                variants.keep_biggest_only(base_scene, database),
+            ),
+            (
+                "variant_03_scrambled",
+                variants.scramble_within_rooms(base_scene, database, seed=args.seed),
+            ),
+            (
+                "variant_04_worst-object",
+                variants.select_worst_objects(base_scene, holodeck),
+            ),
+        ]
+        for name, vscene in variant_jobs:
+            vdir = os.path.join(run_dir, name)
+            os.makedirs(vdir, exist_ok=True)
+            compress_json.dump(
+                vscene, os.path.join(vdir, "scene.json"), json_kwargs=dict(indent=4)
+            )
+            if args.export_meshes:
+                m = _export_meshes(
+                    vscene, OBJATHOR_ASSETS_DIR, os.path.join(vdir, "meshes")
+                )
+                print(f"[done] {name} meshes -> {m} assets")
+            summary.append((name, len(vscene.get("objects", []))))
+            print(f"[done] {name} -> {os.path.join(vdir, 'scene.json')}")
 
     print("\n[summary]")
     width = max(len(name) for name, _ in summary)
