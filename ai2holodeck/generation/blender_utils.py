@@ -34,15 +34,9 @@ from ai2holodeck.constants import (
     OBJATHOR_ASSETS_DIR,
 )
 
-DOOR_DB_PATH = os.path.join(
-    HOLODECK_BASE_DATA_DIR, "doors", "door-database.json"
-)
-WINDOW_DB_PATH = os.path.join(
-    HOLODECK_BASE_DATA_DIR, "windows", "window-database.json"
-)
-MATERIAL_IMAGES_DIR = os.path.join(
-    HOLODECK_BASE_DATA_DIR, "materials", "images"
-)
+DOOR_DB_PATH = os.path.join(HOLODECK_BASE_DATA_DIR, "doors", "door-database.json")
+WINDOW_DB_PATH = os.path.join(HOLODECK_BASE_DATA_DIR, "windows", "window-database.json")
+MATERIAL_IMAGES_DIR = os.path.join(HOLODECK_BASE_DATA_DIR, "materials", "images")
 
 # Unity-intensity -> Blender heuristic multipliers.
 SUN_WATTS_PER_UNIT = 3.0
@@ -101,9 +95,7 @@ def clear() -> None:
 # ---------- materials ----------
 
 # Keyword -> (base color RGB 0-1, roughness)
-_DESIGN_PALETTE: list[
-    tuple[tuple[str, ...], tuple[float, float, float], float]
-] = [
+_DESIGN_PALETTE: list[tuple[tuple[str, ...], tuple[float, float, float], float]] = [
     (("oak", "wood", "hardwood", "timber", "plank"), (0.42, 0.27, 0.15), 0.55),
     (("marble",), (0.92, 0.91, 0.88), 0.25),
     (("tile", "tiled"), (0.85, 0.85, 0.83), 0.35),
@@ -148,9 +140,7 @@ def _make_principled_material(
         if "Alpha" in bsdf.inputs:
             bsdf.inputs["Alpha"].default_value = alpha
         if alpha < 1.0:
-            mat.blend_method = (
-                "BLEND" if hasattr(mat, "blend_method") else "BLEND"
-            )
+            mat.blend_method = "BLEND" if hasattr(mat, "blend_method") else "BLEND"
     return mat
 
 
@@ -293,9 +283,7 @@ def _wall_basis(wall: dict) -> tuple[Vector, Vector, Vector, float, float]:
     p3 = u2b(poly[3])  # along the wall from p0
     height = (p1 - p0).length
     length = (p3 - p0).length
-    along = (
-        (p3 - p0).normalized() if length > 1e-6 else Vector((1.0, 0.0, 0.0))
-    )
+    along = (p3 - p0).normalized() if length > 1e-6 else Vector((1.0, 0.0, 0.0))
     up = Vector((0.0, 0.0, 1.0))
     return p0, along, up, length, height
 
@@ -531,9 +519,7 @@ def place_objects(scene: dict) -> None:
         before = {o.name for o in bpy.context.scene.objects}
         bpy.ops.import_scene.gltf(filepath=path)
         new_objs = _selected_top_level_objects(before)
-        all_new = [
-            o for o in bpy.context.scene.objects if o.name not in before
-        ]
+        all_new = [o for o in bpy.context.scene.objects if o.name not in before]
         if not new_objs:
             n_skipped += 1
             continue
@@ -720,9 +706,7 @@ def build_scene(
 
 
 def add_lights(scene: dict) -> None:
-    for i, light in enumerate(
-        scene.get("proceduralParameters", {}).get("lights", [])
-    ):
+    for i, light in enumerate(scene.get("proceduralParameters", {}).get("lights", [])):
         ltype = light.get("type", "point").lower()
         intensity = float(light.get("intensity", 1.0))
         rgb = light.get("rgb", {"r": 1.0, "g": 1.0, "b": 1.0})
@@ -756,9 +740,7 @@ def add_lights(scene: dict) -> None:
 # ---------- world (background + HDRI) ----------
 
 
-def set_world(
-    bg_color_rgb: tuple[float, float, float], hdri_path: str | None
-) -> None:
+def set_world(bg_color_rgb: tuple[float, float, float], hdri_path: str | None) -> None:
     world = bpy.data.worlds.new("HolodeckWorld")
     bpy.context.scene.world = world
     world.use_nodes = True
@@ -912,7 +894,9 @@ def _visible_world_vertices() -> list[Vector]:
 # ---------- render ----------
 
 
-def render(filepath: str, resolution: int, samples: int, engine: str, transparent: bool = False) -> None:
+def render(
+    filepath: str, resolution: int, samples: int, engine: str, transparent: bool = False
+) -> None:
     sc = bpy.context.scene
     sc.render.engine = engine
     sc.render.resolution_x = resolution
@@ -934,6 +918,4 @@ def render(filepath: str, resolution: int, samples: int, engine: str, transparen
     if "FINISHED" not in result:
         raise RuntimeError(f"render failed: {result}")
     if not os.path.isfile(filepath):
-        raise RuntimeError(
-            f"render returned FINISHED but no file at {filepath}"
-        )
+        raise RuntimeError(f"render returned FINISHED but no file at {filepath}")
