@@ -44,7 +44,7 @@ dependencies = [
     "moviepy==1.0.3",
     "numpy",
     "openai==1.66.3",
-    "open_clip_torch==2.28.0",
+    "open_clip_torch",
     "pillow",
     "prior",
     "procthor",
@@ -52,7 +52,7 @@ dependencies = [
     "scipy",
     "sentence-transformers",
     "shapely",
-    "torch==2.5.1",
+    "torch",
     "torchvision",
     "transformers",
 ]
