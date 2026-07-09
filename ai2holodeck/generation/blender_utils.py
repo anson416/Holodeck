@@ -212,61 +212,6 @@ def _surface_material(
     return _make_principled_material(f"{prefix}_fallback", rgb, rough)
 
 
-def _wall_material(
-    wall_id: str,
-    material_field: dict | None,
-    design_text: str | None,
-    roughness_default: float = 0.75,
-) -> bpy.types.Material:
-    """Wall material using bpa's back-face-culling dollhouse convention.
-
-    Camera-facing wall faces are made transparent (MixShader driven by
-    Geometry.Backfacing), so the camera always sees into the room while the far
-    walls -- and the doors/windows cut into them -- stay visible. ``albedo`` is
-    an image path when a material texture is on disk, else a palette RGB. The
-    node graph mirrors ``bpa.Builder.add_material(..., backface_culling=True)``
-    but is built directly so no dummy object / edit-context is needed.
-    """
-    name = (material_field or {}).get("name") if material_field else None
-    img = _resolve_material_image(name)
-    mat = bpy.data.materials.new(
-        f"mat_{wall_id}" if img is None else f"mat_{wall_id}_{name}"
-    )
-    mat.use_nodes = True
-    nt = mat.node_tree
-    for n in list(nt.nodes):
-        nt.nodes.remove(n)
-    links = nt.links
-    output = nt.nodes.new("ShaderNodeOutputMaterial")
-    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
-    bsdf.inputs["Roughness"].default_value = roughness_default
-
-    if img is not None:
-        tex = nt.nodes.new("ShaderNodeTexImage")
-        try:
-            tex.image = bpy.data.images.load(img, check_existing=True)
-        except RuntimeError:
-            rgb, _ = _design_to_rgba(design_text)
-            bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
-            tex = None
-        if tex is not None:
-            links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
-    else:
-        rgb, _ = _design_to_rgba(design_text)
-        bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
-
-    # backface_culling branch: transparent where Geometry.Backfacing == 1
-    # (camera-facing back faces), opaque BSDF where == 0 (visible front faces).
-    mix = nt.nodes.new("ShaderNodeMixShader")
-    mix.inputs["Fac"].default_value = 1.0
-    transparent = nt.nodes.new("ShaderNodeBsdfTransparent")
-    geometry = nt.nodes.new("ShaderNodeNewGeometry")
-    links.new(bsdf.outputs["BSDF"], mix.inputs[2])
-    links.new(transparent.outputs["BSDF"], mix.inputs[1])
-    links.new(geometry.outputs["Backfacing"], mix.inputs["Fac"])
-    links.new(mix.outputs["Shader"], output.inputs["Surface"])
-    return mat
-
 
 # ---------- room shell ----------
 
@@ -304,7 +249,8 @@ def _holes_for_wall(
 
 
 def _build_wall_with_holes(
-    wall: dict, openings: Iterable[dict], material: bpy.types.Material
+    wall: dict, openings: Iterable[dict], material: bpy.types.Material,
+    room_centroid_xy: tuple[float, float] | None = None,
 ) -> bpy.types.Object | None:
     origin, along, up, length, height = _wall_basis(wall)
     if length <= 1e-4 or height <= 1e-4:
@@ -313,13 +259,16 @@ def _build_wall_with_holes(
     outer = [(0.0, 0.0), (length, 0.0), (length, height), (0.0, height)]
     holes_2d = _holes_for_wall(wall["id"], openings)
     # Clip holes to wall bounds.
+    # Holes use CW winding (opposite of the outer CCW loop) so tessellate_polygon
+    # correctly treats them as holes rather than additional filled regions.
     clipped_holes: list[list[tuple[float, float]]] = []
     for x0, y0, x1, y1 in holes_2d:
         x0c, x1c = max(0.0, x0), min(length, x1)
         y0c, y1c = max(0.0, y0), min(height, y1)
         if x1c - x0c < 1e-3 or y1c - y0c < 1e-3:
             continue
-        clipped_holes.append([(x0c, y0c), (x1c, y0c), (x1c, y1c), (x0c, y1c)])
+        # CW: top-left → top-right → bottom-right → bottom-left
+        clipped_holes.append([(x0c, y1c), (x1c, y1c), (x1c, y0c), (x0c, y0c)])
 
     # Build vertex list: outer first, then each hole.
     verts_2d: list[tuple[float, float]] = list(outer) + [
@@ -331,6 +280,33 @@ def _build_wall_with_holes(
         *[[Vector((x, y, 0.0)) for x, y in h] for h in clipped_holes],
     ]
     tris = tessellate_polygon(loops)
+
+    # Normalize all triangles to CCW winding. tessellate_polygon can produce
+    # mixed-winding output for polygons with holes; make each triangle
+    # individually consistent before the centroid-based directional flip below.
+    normalized: list[tuple[int, int, int]] = []
+    for t in tris:
+        ax, ay = verts_2d[t[0]]
+        bx, by = verts_2d[t[1]]
+        cx, cy = verts_2d[t[2]]
+        if (bx - ax) * (cy - ay) - (by - ay) * (cx - ax) < 0:
+            normalized.append((t[0], t[2], t[1]))
+        else:
+            normalized.append(t)
+    tris = normalized
+
+    # All tris are now CCW → local face normal = +Z → world normal = n = along × up.
+    # Flip all if n points away from the room interior so Cycles illuminates the
+    # room-facing surface correctly.
+    n = along.cross(up)
+    if room_centroid_xy is not None:
+        wall_center_xy = Vector((
+            origin.x + 0.5 * length * along.x,
+            origin.y + 0.5 * length * along.y,
+        ))
+        inward_xy = Vector(room_centroid_xy) - wall_center_xy
+        if inward_xy.dot(Vector((n.x, n.y))) < 0:
+            tris = [(t[0], t[2], t[1]) for t in tris]
 
     mesh = bpy.data.meshes.new(f"mesh_{wall['id']}")
     mesh.from_pydata(verts_3d, [], [list(t) for t in tris])
@@ -346,7 +322,6 @@ def _build_wall_with_holes(
     # Build a 4x4 matrix manually.
     from mathutils import Matrix
 
-    n = along.cross(up)
     m = Matrix(
         (
             (along.x, up.x, n.x, origin.x),
@@ -403,7 +378,7 @@ def _solidify(obj: bpy.types.Object, thickness: float) -> None:
 
 
 def build_shell(
-    scene: dict, hide_ceiling: bool = True, backface_cull_walls: bool = True
+    scene: dict, hide_ceiling: bool = True
 ) -> None:
     wall_height = float(scene.get("wall_height", 2.7))
     rooms = scene.get("rooms", [])
@@ -439,25 +414,39 @@ def build_shell(
         )
         ceil.data.materials.append(ceil_mat)
 
-    # Walls. With back-face culling (the dollhouse convention), camera-facing
-    # wall faces render transparent so the interior + far walls stay visible.
+    # Walls. Near-wall visibility is handled by cull_near_walls (hide_render),
+    # so every wall uses a plain opaque material here. We compute each room's
+    # XZ centroid so _build_wall_with_holes can orient normals to face inward.
     wall_design_by_room = {r["id"]: r.get("wall_design") for r in rooms}
+    room_centroid: dict[str, tuple[float, float]] = {}
+    for r in rooms:
+        fp = r.get("floorPolygon", [])
+        if fp:
+            cx = sum(p["x"] for p in fp) / len(fp)
+            cz = sum(p["z"] for p in fp) / len(fp)
+            room_centroid[r["id"]] = (cx, cz)
+    # Global scene centroid as fallback for walls with no roomId.
+    all_pts = [p for r in rooms for p in r.get("floorPolygon", [])]
+    global_centroid: tuple[float, float] | None = None
+    if all_pts:
+        global_centroid = (
+            sum(p["x"] for p in all_pts) / len(all_pts),
+            sum(p["z"] for p in all_pts) / len(all_pts),
+        )
     for wall in walls:
-        if backface_cull_walls:
-            mat = _wall_material(
-                wall["id"],
-                wall.get("material"),
-                wall_design_by_room.get(wall.get("roomId")),
-                roughness_default=0.75,
-            )
-        else:
-            mat = _surface_material(
-                f"mat_{wall['id']}",
-                wall.get("material"),
-                wall_design_by_room.get(wall.get("roomId")),
-                roughness_default=0.75,
-            )
-        obj = _build_wall_with_holes(wall, openings, mat)
+        # Exterior walls ("|exterior" suffix) are coplanar duplicates of interior
+        # walls, added by Holodeck for the outside face in Unity. We only need the
+        # interior face for dollhouse rendering; including both causes Z-fighting.
+        if wall["id"].endswith("|exterior"):
+            continue
+        mat = _surface_material(
+            f"mat_{wall['id']}",
+            wall.get("material"),
+            wall_design_by_room.get(wall.get("roomId")),
+            roughness_default=0.75,
+        )
+        centroid = room_centroid.get(wall.get("roomId"), global_centroid)
+        obj = _build_wall_with_holes(wall, openings, mat, room_centroid_xy=centroid)
         if obj is not None:
             obj["holodeck_wall"] = True
             _solidify(obj, WALL_THICKNESS)
@@ -683,20 +672,18 @@ def build_scene(
     scene: dict,
     *,
     hide_ceiling: bool = True,
-    backface_cull_walls: bool = True,
     use_real_opening_glb: bool = True,
 ) -> None:
     """One-shot scene construction: reset + shell + objects + openings + lights.
 
     Used by the Blender render driver. ``clear`` is called first so repeated
-    renders start from an empty blend. Walls use back-face culling by default
-    (dollhouse convention). Doors/windows use the real .glb when available, else
+    renders start from an empty blend. Near-wall occlusion is handled at render
+    time by ``orbit_camera`` (which calls ``cull_near_walls``), so walls use
+    plain opaque materials. Doors/windows use the real .glb when available, else
     the database proxy box.
     """
     clear()
-    build_shell(
-        scene, hide_ceiling=hide_ceiling, backface_cull_walls=backface_cull_walls
-    )
+    build_shell(scene, hide_ceiling=hide_ceiling)
     place_objects(scene)
     place_openings(scene, use_real_glb=use_real_opening_glb)
     add_lights(scene)
@@ -826,10 +813,9 @@ def orbit_camera(
     cam_obj = bpy.data.objects.new("Cam", cam_data)
     bpy.context.scene.collection.objects.link(cam_obj)
 
-    # Compose camera orientation via Euler so yaw remains meaningful at pitch=90.
-    # Our convention: pitch_deg=0 -> horizontal, pitch_deg=90 -> looking straight down.
-    # Blender cameras look along -Z locally; rotate +X by (90-pitch) then around +Z by yaw.
-    rx = math.radians(90.0 - pitch_deg)
+    # Blender cameras look along -Z locally (rx=0 -> top-down, rx=90 -> horizontal).
+    # Our convention: pitch_deg=0 -> top-down, pitch_deg=90 -> horizontal side view.
+    rx = math.radians(pitch_deg)
     rz = math.radians(yaw_deg)
     cam_rot = Euler((rx, 0.0, rz), "XYZ")
     rot_mat = cam_rot.to_matrix()

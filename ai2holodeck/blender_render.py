@@ -237,42 +237,45 @@ def render_scene(
     n_written = 0
     for env, cfgs in by_env.items():
         hdri = _hdri_path(env, hdri_dir)
-        # 1. fresh scene + geometry
+        # 1. fresh scene + geometry (walls are plain opaque; dollhouse occlusion
+        #    is handled per-camera by bu.orbit_camera -> cull_near_walls).
         bpa.clear()
         bu.build_scene(scene)
-        # 2. render/world setup MUST come after geometry so film_transparent
-        #    and the HDRI world survive into the render.
+        # 2. world/render setup after geometry.
         bpa.initialize(transparent=True, environment_map=(hdri, 1.0))
-        # Override the engine/samples bpa.initialize defaulted.
         sc = bpy.context.scene
         sc.render.engine = engine
         if engine == "CYCLES":
             sc.cycles.samples = max(1, samples)
             sc.cycles.device = "CPU"
 
-        renderer = bpa.Renderer()
-        renderer.compute_world_vertices()
-        center, radius = renderer.compute_bounding_sphere()
-
         for c in cfgs:
             master = os.path.join(renderings_dir, c.master_filename())
             if not os.path.isfile(master):
-                renderer.render_perspective(
-                    master,
-                    center,
-                    radius,
-                    rotation=(c.pitch, 0, c.yaw),
-                    resolution=c.res,
-                    focal_length=float(c.focal),
+                # orbit_camera hides near walls (cull_near_walls) THEN collects
+                # visible vertices for tight-fit framing — the correct order for
+                # the dollhouse convention.
+                bu.orbit_camera(
+                    scene,
+                    pitch_deg=c.pitch,
+                    yaw_deg=c.yaw,
+                    focal_mm=float(c.focal),
                     fit_ratio=fit_ratio,
-                    background=None,  # transparent master
+                    aspect_ratio=1.0,
+                    cull_walls=True,
                 )
+                sc.render.resolution_x = c.res
+                sc.render.resolution_y = c.res
+                sc.render.filepath = master
+                result = bpy.ops.render.render(write_still=True)
+                if "FINISHED" not in result:
+                    raise RuntimeError(f"render failed: {result}")
                 n_written += 1
             # Composite backgrounds over the transparent master.
             for bg in c.backgrounds:
                 comp = os.path.join(renderings_dir, c.composite_filename(bg))
                 if not os.path.isfile(comp):
-                    renderer.add_bg_to_rgba(master, comp, color=bg)
+                    bpa.Renderer.add_bg_to_rgba(master, comp, color=bg)
                     n_written += 1
         print(f"[render] env={env}: {len(cfgs)} camera config(s) -> {renderings_dir}")
     return n_written
