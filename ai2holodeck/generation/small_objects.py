@@ -1,12 +1,12 @@
 import copy
 import multiprocessing
 import random
+from typing import Callable
 
 import torch
 import torch.nn.functional as F
 from ai2thor.controller import Controller
 from ai2thor.hooks.procedural_asset_hook import ProceduralAssetHookRunner
-from langchain import OpenAI
 from procthor.constants import FLOOR_Y
 from procthor.utils.types import Vector3
 
@@ -16,7 +16,7 @@ from ai2holodeck.generation.utils import get_annotations, get_bbox_dims, get_sec
 
 
 class SmallObjectGenerator:
-    def __init__(self, object_retriever: ObjathorRetriever, llm: OpenAI):
+    def __init__(self, object_retriever: ObjathorRetriever, llm: Callable[[str], str]):
         self.llm = llm
         self.object_retriever = object_retriever
         self.database = object_retriever.database

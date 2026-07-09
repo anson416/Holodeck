@@ -5,17 +5,17 @@ import multiprocessing
 import random
 import re
 import traceback
-from typing import Dict, List
+from typing import Callable, Dict, List
 
 import torch
 import torch.nn.functional as F
 from colorama import Fore
-from langchain import OpenAI, PromptTemplate
 from shapely import Polygon
 
 import ai2holodeck.generation.prompts as prompts
 from ai2holodeck.generation.floor_objects import DFS_Solver_Floor
 from ai2holodeck.generation.objaverse_retriever import ObjathorRetriever
+from ai2holodeck.generation.prompt_template import PromptTemplate
 from ai2holodeck.generation.utils import get_annotations, get_bbox_dims
 from ai2holodeck.generation.wall_objects import DFS_Solver_Wall
 
@@ -30,7 +30,7 @@ EXPECTED_OBJECT_ATTRIBUTES = [
 
 
 class ObjectSelector:
-    def __init__(self, object_retriever: ObjathorRetriever, llm: OpenAI):
+    def __init__(self, object_retriever: ObjathorRetriever, llm: Callable[[str], str]):
         # object retriever
         self.object_retriever = object_retriever
         self.database = object_retriever.database

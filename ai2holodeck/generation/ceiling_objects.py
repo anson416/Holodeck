@@ -1,19 +1,20 @@
 import copy
 import re
+from typing import Callable
 
 import torch
 import torch.nn.functional as F
 from colorama import Fore
-from langchain import PromptTemplate, OpenAI
 from shapely.geometry import Polygon
 
 import ai2holodeck.generation.prompts as prompts
 from ai2holodeck.generation.objaverse_retriever import ObjathorRetriever
+from ai2holodeck.generation.prompt_template import PromptTemplate
 from ai2holodeck.generation.utils import get_bbox_dims, get_annotations
 
 
 class CeilingObjectGenerator:
-    def __init__(self, object_retriever: ObjathorRetriever, llm: OpenAI):
+    def __init__(self, object_retriever: ObjathorRetriever, llm: Callable[[str], str]):
         self.json_template = {
             "assetId": None,
             "id": None,

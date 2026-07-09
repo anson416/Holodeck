@@ -41,7 +41,6 @@ dependencies = [
     "cvxpy",
     "editdistance",
     "faust-cchardet",
-    "langchain==0.0.171",
     "moviepy==1.0.3",
     "numpy",
     "openai==1.66.3",

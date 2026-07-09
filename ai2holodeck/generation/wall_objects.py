@@ -3,20 +3,21 @@ import multiprocessing
 import random
 import re
 import time
+from typing import Callable
 
 import matplotlib.pyplot as plt
 import numpy as np
-from langchain import OpenAI, PromptTemplate
 from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import substring
 
 import ai2holodeck.generation.prompts as prompts
 from ai2holodeck.generation.objaverse_retriever import ObjathorRetriever
+from ai2holodeck.generation.prompt_template import PromptTemplate
 from ai2holodeck.generation.utils import get_bbox_dims
 
 
 class WallObjectGenerator:
-    def __init__(self, object_retriever: ObjathorRetriever, llm: OpenAI):
+    def __init__(self, object_retriever: ObjathorRetriever, llm: Callable[[str], str]):
         self.json_template = {
             "assetId": None,
             "id": None,

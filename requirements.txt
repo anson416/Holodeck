@@ -15,7 +15,6 @@ scipy
 moviepy
 numpy
 openai==1.66.3
-langchain==0.0.171
 torch==2.5.1
 torchvision==0.20.1
 gurobipy==10.0.3

@@ -1,16 +1,17 @@
 import copy
 import random
+from typing import Callable
 
 import numpy as np
 from colorama import Fore
-from langchain import PromptTemplate, OpenAI
 from shapely.geometry import LineString, Polygon, Point
 
 import ai2holodeck.generation.prompts as prompts
+from ai2holodeck.generation.prompt_template import PromptTemplate
 
 
 class WallGenerator:
-    def __init__(self, llm: OpenAI):
+    def __init__(self, llm: Callable[[str], str]):
         self.json_template = {
             "id": None,
             "roomId": None,

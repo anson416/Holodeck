@@ -51,10 +51,14 @@ passed into every generator's constructor. Generators never construct their
 own client. To swap models or providers, change only that wrapper; all
 downstream code is provider-agnostic.
 
-Prompts are built via `langchain.PromptTemplate` against templates centralized
-in `ai2holodeck/generation/prompts.py`. New prompts go in `prompts.py`; new
+Prompts are built via the `PromptTemplate` shim in
+`ai2holodeck/generation/prompt_template.py` against templates centralized in
+`ai2holodeck/generation/prompts.py`. New prompts go in `prompts.py`; new
 generators construct a `PromptTemplate(input_variables=[...], template=...)`
-in their constructor.
+in their constructor. The shim substitutes only declared variables (leaving
+literal JSON braces in prompts untouched); it replaced the legacy
+`langchain==0.0.171` dependency, which pinned `numpy<2` and conflicted with the
+rest of the stack.
 
 ## 4. CLIP + SBERT Dual-Encoder Retrieval
 

@@ -3,6 +3,7 @@ import copy
 import math
 import os
 from difflib import SequenceMatcher
+from typing import Callable
 
 import compress_json
 import compress_pickle
@@ -12,16 +13,16 @@ import matplotlib.pyplot as plt
 import torch
 from PIL import Image
 from colorama import Fore
-from langchain import PromptTemplate, OpenAI
 from shapely.geometry import LineString, Point, Polygon
 from tqdm import tqdm
 
 import ai2holodeck.generation.prompts as prompts
 from ai2holodeck.constants import HOLODECK_BASE_DATA_DIR, DEBUGGING
+from ai2holodeck.generation.prompt_template import PromptTemplate
 
 
 class FloorPlanGenerator:
-    def __init__(self, clip_model, clip_process, clip_tokenizer, llm: OpenAI):
+    def __init__(self, clip_model, clip_process, clip_tokenizer, llm: Callable[[str], str]):
         self.json_template = {
             "ceilings": [],
             "children": [],

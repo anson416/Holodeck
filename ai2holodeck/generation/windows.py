@@ -3,18 +3,19 @@ import copy
 import os
 import random
 import re
+from typing import Callable
 
 import compress_json
 import numpy as np
 from colorama import Fore
-from langchain import PromptTemplate, OpenAI
 
 import ai2holodeck.generation.prompts as prompts
 from ai2holodeck.constants import HOLODECK_BASE_DATA_DIR
+from ai2holodeck.generation.prompt_template import PromptTemplate
 
 
 class WindowGenerator:
-    def __init__(self, llm: OpenAI):
+    def __init__(self, llm: Callable[[str], str]):
         self.json_template = {
             "assetId": None,
             "id": None,
