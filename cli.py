@@ -50,7 +50,7 @@ two-step transparent-then-composite (HDRI still lights the transparent pass),
 ``fit_ratio=1`` tight-fit framing, pitch 0 == top-down, and the dollhouse wall
 convention (camera-facing wall faces transparent via back-face culling, so the
 interior + far walls/doors/windows stay visible). HDRI files live under
-``<repo>/data/hdri/`` (override with ``--hdri_dir``).
+``<repo>/hdri/`` (override with ``--hdri_dir``).
 
 Two invocation modes (exactly one of ``--prompt`` / ``--path``):
   * ``--prompt``  - generate the base scene first, then render base (+ variants
@@ -131,13 +131,6 @@ bundles plus an LLM endpoint. They are listed below in order of importance.
    ``.../annotations.json.gz`` AND ``holodeck/<HD_BASE_VERSION>/...``.
    Override the versions with ``--assets_version`` / ``--hd_base_version``
    if you used a non-default version.
-
-   If you have the *entire* objathor bundle (assets + features +
-   annotations) at a single flat root that is NOT laid out as
-   ``<base>/<version>/...``, use ``--objathor_root <ROOT>`` instead — this
-   maps ``<ROOT>/assets``, ``<ROOT>/features``, ``<ROOT>/annotations.json.gz``
-   directly. (The Holodeck THOR data still needs ``--objathor_assets_base_dir``
-   because it lives under a different layout.)
 
 2. AI2-THOR Unity executable
    --------------------------
@@ -314,7 +307,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--hdri_dir",
         default=None,
         help="Directory with <env>.exr HDRI files (e.g. city.exr). Defaults "
-        "to <repo>/data/hdri.",
+        "to <repo>/hdri.",
     )
     render_grp.add_argument(
         "--render_samples",
@@ -341,20 +334,13 @@ def build_parser() -> argparse.ArgumentParser:
     res.add_argument(
         "--assets_version",
         default=None,
-        help="Objathor assets version (default 2023_09_23). " "Maps to ASSETS_VERSION.",
+        help="Objathor assets version (default 2023_09_23). Maps to ASSETS_VERSION.",
     )
     res.add_argument(
         "--hd_base_version",
         default=None,
         help="Holodeck base data version (default 2023_09_23). "
         "Maps to HD_BASE_VERSION.",
-    )
-    res.add_argument(
-        "--objathor_root",
-        default=None,
-        help="Flat objathor bundle root: <ROOT>/assets, "
-        "<ROOT>/features, <ROOT>/annotations.json.gz. "
-        "Maps to VLMUNR_OBJATHOR_ROOT.",
     )
     return p
 
@@ -377,8 +363,6 @@ def _apply_resource_env(args) -> None:
         os.environ["ASSETS_VERSION"] = args.assets_version
     if args.hd_base_version:
         os.environ["HD_BASE_VERSION"] = args.hd_base_version
-    if args.objathor_root:
-        os.environ["VLMUNR_OBJATHOR_ROOT"] = args.objathor_root
 
 
 def _query_name(query: str) -> str:
@@ -450,14 +434,14 @@ def _render_scenes(args, scene_dirs: list[str]) -> None:
     if not (args.render or args.render_all):
         return
     from ai2holodeck.blender_render import (
+        render_all_configs,
         render_scene,
         single_config,
-        render_all_configs,
     )
 
     configs = render_all_configs() if args.render_all else single_config()
     repo_root = os.path.dirname(os.path.abspath(__file__))
-    hdri_dir = args.hdri_dir or os.path.join(repo_root, "data", "hdri")
+    hdri_dir = args.hdri_dir or os.path.join(repo_root, "hdri")
     print(
         f"[render] {len(scene_dirs)} scene(s) x {len(configs)} camera config(s) "
         f"-> each scene's renderings/"
@@ -524,10 +508,11 @@ def main(argv=None) -> int:
     # up the overridden paths.
     _apply_resource_env(args)
 
-    from ai2holodeck.constants import LLM_MODEL_NAME, OBJATHOR_ASSETS_DIR
-    from ai2holodeck.generation.holodeck import Holodeck
-    from ai2holodeck.generation import variants
     import compress_json
+
+    from ai2holodeck.constants import LLM_MODEL_NAME, OBJATHOR_ASSETS_DIR
+    from ai2holodeck.generation import variants
+    from ai2holodeck.generation.holodeck import Holodeck
 
     model_name = args.model_name or LLM_MODEL_NAME
     generate_image = str2bool(args.generate_image)
@@ -561,7 +546,6 @@ def main(argv=None) -> int:
             "objathor_assets_base_dir": args.objathor_assets_base_dir,
             "assets_version": args.assets_version,
             "hd_base_version": args.hd_base_version,
-            "objathor_root": args.objathor_root,
         },
         "seed": args.seed,
         "timestamp_utc": timestamp,
