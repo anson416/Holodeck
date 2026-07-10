@@ -453,32 +453,60 @@ def build_shell(
 
 
 def cull_near_walls(scene: dict, cam_obj: bpy.types.Object) -> None:
-    """Hide walls between camera and scene center so the interior is visible."""
+    """Hide near walls that occlude the interior, without touching side walls.
+
+    A wall occludes the interior iff the camera and the scene center lie on
+    **opposite sides** of the wall's plane -- i.e. the wall separates the camera
+    from what we want to see. Side walls (edge-on to the camera) always have the
+    camera and the scene center on the same side (both inside the room), so they
+    are never hidden. This is what fixes a doorway-split side wall being
+    half-culled just because one of its segments lands on the camera side of the
+    centroid: the centroid projection said "near", but the plane test correctly
+    says "same side, leave visible".
+
+    The test is invariant to wall-normal orientation (flipping the normal flips
+    both signed distances, leaving opposite-ness unchanged), so it does not
+    depend on the inward-normal flip done in ``_build_wall_with_holes``.
+    """
     center, _ = _scene_bbox(scene)
-    cam_xy = Vector((cam_obj.location.x, cam_obj.location.y))
+    cam_loc = cam_obj.location
+    cam_xy = Vector((cam_loc.x, cam_loc.y))
     center_xy = Vector((center.x, center.y))
     view_dir = center_xy - cam_xy
-    if view_dir.length < 1e-6:
+    view_len = view_dir.length
+    if view_len < 1e-6:
         return
     view_dir.normalize()
     for obj in bpy.data.objects:
         if not obj.get("holodeck_wall"):
             continue
-        # Wall world center on the floor plane.
+        # World wall center on the floor plane (average of world-space verts).
         wc = obj.matrix_world @ Vector((0.0, 0.0, 0.0))
-        # Approx: average with the far corner using local bbox.
         if obj.data and obj.data.vertices:
             local_center = sum(
                 (Vector(v.co) for v in obj.data.vertices), Vector()
             ) / len(obj.data.vertices)
             wc = obj.matrix_world @ local_center
         wc_xy = Vector((wc.x, wc.y))
-        # Hide if wall center is on the camera side of the scene center.
-        on_camera_side = (wc_xy - center_xy).dot(cam_xy - center_xy) > 0
-        # Also require it's roughly between cam and center along view dir.
+        # Wall plane normal in world space (local Z axis = column 2 of the world
+        # matrix). Only the floor-plane (XY) component matters for side test.
+        nw = obj.matrix_world.col[2].xyz
+        n_xy = Vector((nw.x, nw.y))
+        if n_xy.length < 1e-6:
+            obj.hide_render = False
+            obj.hide_viewport = False
+            continue
+        n_xy.normalize()
+        # Signed distances of camera and scene center to the wall plane.
+        d_cam = n_xy.dot(cam_xy - wc_xy)
+        d_center = n_xy.dot(center_xy - wc_xy)
+        opposite_sides = (d_cam > 0) != (d_center > 0)
+        # Require the wall to be roughly between camera and center along the view
+        # direction, so a far partition wall on the wrong side of center is not
+        # touched in multi-room scenes.
         proj = (wc_xy - cam_xy).dot(view_dir)
-        between = 0 < proj < (center_xy - cam_xy).length
-        hide = on_camera_side and between
+        between = 0 < proj < view_len
+        hide = opposite_sides and between
         obj.hide_render = hide
         obj.hide_viewport = hide
 
