@@ -523,7 +523,7 @@ def main(argv=None) -> int:
     os.makedirs(run_dir, exist_ok=True)
 
     config = {
-        "query": args.query,
+        "prompt": args.query,
         "model_name": model_name,
         "openai_api_base": args.openai_api_base,
         "openai_api_key_provided": args.openai_api_key is not None,
@@ -551,7 +551,7 @@ def main(argv=None) -> int:
         "timestamp_utc": timestamp,
     }
     compress_json.dump(
-        config, os.path.join(run_dir, "config.json"), json_kwargs=dict(indent=4)
+        config, os.path.join(run_dir, "config.json"), json_kwargs=dict(indent=2)
     )
 
     holodeck = Holodeck(
